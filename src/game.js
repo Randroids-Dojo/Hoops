@@ -10,12 +10,14 @@ import { AudioEngine } from './audio.js';
 import { Particles } from './particles.js';
 import { Scoring } from './scoring.js';
 import { Screens } from './screens.js';
+import { Leaderboard } from './leaderboard.js';
 
 export class Game {
   constructor(canvas, ctx) {
     this.canvas = canvas;
     this.ctx = ctx;
-    this.state = 'title'; // title, playing, stageClear, gameOver, paused
+    // States: title, playing, stageClear, gameOver, paused, nameEntry, leaderboard
+    this.state = 'title';
     this.lastTime = 0;
 
     // Initialize subsystems
@@ -28,10 +30,13 @@ export class Game {
     this.particles = new Particles();
     this.scoring = new Scoring();
     this.screens = new Screens();
+    this.leaderboard = new Leaderboard();
 
     this.ballResetTimer = 0;
     this.edgePulseTimer = 0;
     this.previousState = null; // for pause
+    this.leaderboardReturnState = 'title'; // where to go back from leaderboard
+    this.globalRank = null; // rank from last submission
 
     this._setupInput();
     this._setupKeyboard();
@@ -49,11 +54,15 @@ export class Game {
 
     this.input.onTap = (x, y) => {
       if (this.state === 'title') {
-        this.startGame();
+        this._handleTitleTap(x, y);
       } else if (this.state === 'gameOver') {
         this.returnToTitle();
       } else if (this.state === 'paused') {
         this.togglePause();
+      } else if (this.state === 'nameEntry') {
+        this._handleNameEntryTap(x, y);
+      } else if (this.state === 'leaderboard') {
+        this._handleLeaderboardTap(x, y);
       }
     };
   }
@@ -63,13 +72,182 @@ export class Game {
       if (e.key === 'Escape') {
         if (this.state === 'playing' || this.state === 'paused') {
           this.togglePause();
+        } else if (this.state === 'leaderboard') {
+          this._exitLeaderboard();
+        } else if (this.state === 'nameEntry') {
+          // Skip name entry
+          this._skipNameEntry();
         }
       }
       if (e.key === 'm' || e.key === 'M') {
         this.audio.toggle();
       }
+      if (e.key === 'l' || e.key === 'L') {
+        if (this.state === 'title' || this.state === 'gameOver') {
+          this._openLeaderboard();
+        }
+      }
+
+      // Name entry keyboard controls
+      if (this.state === 'nameEntry') {
+        this._handleNameEntryKey(e.key);
+      }
+
+      // Leaderboard tab switching
+      if (this.state === 'leaderboard') {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          this.screens.toggleLeaderboardTab();
+        }
+      }
     });
   }
+
+  // --- Title screen ---
+
+  _handleTitleTap(x, y) {
+    // Check leaderboard button
+    const btn = this.screens.getLeaderboardButtonRect(this.canvas);
+    if (this.screens._hitTest(x, y, btn)) {
+      this._openLeaderboard();
+      return;
+    }
+    // Otherwise start game
+    this.startGame();
+  }
+
+  // --- Name entry ---
+
+  _handleNameEntryKey(key) {
+    if (key === 'ArrowUp') {
+      this.screens.nameScrollUp();
+      this.audio.playClick();
+    } else if (key === 'ArrowDown') {
+      this.screens.nameScrollDown();
+      this.audio.playClick();
+    } else if (key === 'ArrowRight') {
+      this.screens.nameAdvanceCursor();
+      this.audio.playClick();
+    } else if (key === 'ArrowLeft') {
+      this.screens.nameBackCursor();
+      this.audio.playClick();
+    } else if (key === 'Enter') {
+      this._submitName();
+    } else if (key === 'Backspace') {
+      this.screens.nameBackCursor();
+      this.audio.playClick();
+    }
+  }
+
+  _handleNameEntryTap(x, y) {
+    // Check confirm button
+    const confirmRect = this.screens.getNameEntryConfirmRect(this.canvas);
+    if (this.screens._hitTest(x, y, confirmRect)) {
+      this._submitName();
+      return;
+    }
+
+    // Check skip button
+    const skipRect = this.screens.getNameEntrySkipRect(this.canvas);
+    if (this.screens._hitTest(x, y, skipRect)) {
+      this._skipNameEntry();
+      return;
+    }
+
+    // Check character slots
+    const charRects = this.screens.getNameEntryCharRects(this.canvas);
+    for (let i = 0; i < 3; i++) {
+      const r = charRects[i];
+      // Check up arrow area (above the slot)
+      if (x >= r.x && x <= r.x + r.w && y >= r.y - 30 && y < r.y) {
+        this.screens.namePos = i;
+        this.screens.nameScrollUp();
+        this.audio.playClick();
+        return;
+      }
+      // Check down arrow area (below the slot)
+      if (x >= r.x && x <= r.x + r.w && y > r.y + r.h && y <= r.y + r.h + 30) {
+        this.screens.namePos = i;
+        this.screens.nameScrollDown();
+        this.audio.playClick();
+        return;
+      }
+      // Check the slot itself - select it
+      if (this.screens._hitTest(x, y, r)) {
+        if (this.screens.namePos === i) {
+          // Already selected - advance
+          this.screens.nameAdvanceCursor();
+        } else {
+          this.screens.namePos = i;
+        }
+        this.audio.playClick();
+        return;
+      }
+    }
+  }
+
+  async _submitName() {
+    const name = this.screens.getEnteredName();
+    this.audio.playClick();
+    this.leaderboard.saveName(name);
+
+    // Submit to global leaderboard
+    const result = await this.leaderboard.submitScore(
+      name,
+      this.scoring.totalScore,
+      this.scoring.stageNum,
+    );
+
+    if (result && result.rank) {
+      this.globalRank = result.rank;
+    }
+
+    this.state = 'gameOver';
+  }
+
+  _skipNameEntry() {
+    this.audio.playClick();
+    // Save locally but don't submit to global leaderboard
+    this.state = 'gameOver';
+  }
+
+  // --- Leaderboard ---
+
+  _openLeaderboard() {
+    this.leaderboardReturnState = this.state;
+    this.state = 'leaderboard';
+    this.audio.playClick();
+    this.leaderboard.fetchBoth();
+  }
+
+  _exitLeaderboard() {
+    this.audio.playClick();
+    this.state = this.leaderboardReturnState || 'title';
+  }
+
+  _handleLeaderboardTap(x, y) {
+    // Back button
+    const backBtn = this.screens.getLeaderboardBackButtonRect(this.canvas);
+    if (this.screens._hitTest(x, y, backBtn)) {
+      this._exitLeaderboard();
+      return;
+    }
+
+    // Tab buttons
+    const tabs = this.screens.getLeaderboardTabRects(this.canvas);
+    if (this.screens._hitTest(x, y, tabs.alltime)) {
+      this.screens.leaderboardTab = 'alltime';
+      this.audio.playClick();
+      return;
+    }
+    if (this.screens._hitTest(x, y, tabs.daily)) {
+      this.screens.leaderboardTab = 'daily';
+      this.audio.playClick();
+      return;
+    }
+  }
+
+  // --- Core game flow ---
 
   startGame() {
     this.audio.init();
@@ -81,6 +259,7 @@ export class Game {
     this.ball.reset();
     this.particles.clear();
     this.hud.notifications = [];
+    this.globalRank = null;
 
     // Set hoop movement for stage 1
     this.hoop.setMovement(this.scoring.stageData.hoopSpeed, this.scoring.stageData.hoopAmplitude);
@@ -123,7 +302,7 @@ export class Game {
     this.hud.update(dt);
     this.particles.update(dt);
 
-    if (this.state === 'title') {
+    if (this.state === 'title' || this.state === 'leaderboard' || this.state === 'nameEntry') {
       this.lane.update(dt);
       this.hoop.update(dt);
       return;
@@ -258,11 +437,15 @@ export class Game {
   }
 
   _onTimeUp() {
-    this.state = 'gameOver';
     this.audio.playTimeUp();
     this.screens.startFlash();
     this.scoring.saveHighScore();
     this.ball.reset();
+
+    // Go to name entry screen instead of directly to game over
+    this.state = 'nameEntry';
+    this.screens.initNameEntry(this.leaderboard.playerName);
+    this.globalRank = null;
   }
 
   _updateStageClear(dt) {
@@ -318,9 +501,21 @@ export class Game {
       return;
     }
 
+    if (this.state === 'nameEntry') {
+      this.particles.render(ctx);
+      this.screens.renderNameEntry(ctx, canvas, this.scoring.totalScore, this.scoring.stageNum);
+      return;
+    }
+
     if (this.state === 'gameOver') {
       this.particles.render(ctx);
-      this.screens.renderGameOver(ctx, canvas, this.scoring);
+      this.screens.renderGameOver(ctx, canvas, this.scoring, this.globalRank);
+      return;
+    }
+
+    if (this.state === 'leaderboard') {
+      this.particles.render(ctx);
+      this.screens.renderLeaderboard(ctx, canvas, this.leaderboard);
       return;
     }
   }
