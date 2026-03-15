@@ -11,6 +11,7 @@ import { Particles } from './particles.js';
 import { Scoring } from './scoring.js';
 import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
+import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 
 export class Game {
   constructor(canvas, ctx) {
@@ -40,6 +41,8 @@ export class Game {
 
     this._setupInput();
     this._setupKeyboard();
+    this._createPauseButton();
+    initFeedbackFab();
   }
 
   _setupInput() {
@@ -273,13 +276,34 @@ export class Game {
     this.particles.clear();
   }
 
+  _createPauseButton() {
+    this.pauseBtn = document.createElement('button');
+    this.pauseBtn.id = 'pause-btn';
+    this.pauseBtn.textContent = 'PAUSE';
+    this.pauseBtn.style.display = 'none';
+    this.pauseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.togglePause();
+    });
+    document.body.appendChild(this.pauseBtn);
+  }
+
+  _updatePauseButton() {
+    if (!this.pauseBtn) return;
+    const showBtn = this.state === 'playing';
+    this.pauseBtn.style.display = showBtn ? 'block' : 'none';
+  }
+
   togglePause() {
     if (this.state === 'playing') {
       this.previousState = 'playing';
       this.state = 'paused';
+      showFab();
     } else if (this.state === 'paused') {
       this.state = this.previousState || 'playing';
+      hideFab();
     }
+    this._updatePauseButton();
   }
 
   start() {
@@ -463,6 +487,9 @@ export class Game {
 
   render() {
     const { ctx, canvas } = this;
+
+    // Update pause button visibility
+    this._updatePauseButton();
 
     // Clear
     ctx.fillStyle = COLORS.background;
