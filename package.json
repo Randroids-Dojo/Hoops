@@ -1,0 +1,13 @@
+{
+  "name": "hoops",
+  "version": "1.0.0",
+  "description": "Set a high score in this arcade-style basketball shooter.",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "npx serve ."
+  },
+  "dependencies": {
+    "@vercel/kv": "^1.0.1"
+  }
+}
