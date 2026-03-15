@@ -8,6 +8,6 @@
     "start": "npx serve ."
   },
   "dependencies": {
-    "@vercel/kv": "^1.0.1"
+    "@upstash/redis": "^1.37.0"
   }
 }
