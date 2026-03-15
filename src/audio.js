@@ -1,6 +1,6 @@
 // Web Audio API procedural sound engine
 
-export class Audio {
+export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.enabled = true;
@@ -26,17 +26,6 @@ export class Audio {
   toggle() {
     this.enabled = !this.enabled;
     return this.enabled;
-  }
-
-  // Utility: create a gain node with envelope
-  _envelope(startTime, attack, decay, sustain, release) {
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0, startTime);
-    gain.gain.linearRampToValueAtTime(1, startTime + attack);
-    gain.gain.linearRampToValueAtTime(sustain, startTime + attack + decay);
-    gain.gain.linearRampToValueAtTime(0, startTime + attack + decay + release);
-    gain.connect(this.ctx.destination);
-    return gain;
   }
 
   // Ball throw: ascending whoosh

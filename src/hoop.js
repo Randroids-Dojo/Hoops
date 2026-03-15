@@ -1,6 +1,6 @@
 // Hoop rendering and collision detection
 
-import { COLORS, RIM_RADIUS, RIM_BOUNCE_DAMPING, dist, clamp, lerp } from './utils.js';
+import { COLORS, RIM_RADIUS, RIM_BOUNCE_DAMPING, dist } from './utils.js';
 
 export class Hoop {
   constructor(canvas) {

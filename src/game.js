@@ -6,7 +6,7 @@ import { Hoop } from './hoop.js';
 import { Lane } from './lane.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
-import { Audio } from './audio.js';
+import { AudioEngine } from './audio.js';
 import { Particles } from './particles.js';
 import { Scoring } from './scoring.js';
 import { Screens } from './screens.js';
@@ -24,12 +24,13 @@ export class Game {
     this.lane = new Lane();
     this.hud = new HUD();
     this.input = new Input(canvas);
-    this.audio = new Audio();
+    this.audio = new AudioEngine();
     this.particles = new Particles();
     this.scoring = new Scoring();
     this.screens = new Screens();
 
     this.ballResetTimer = 0;
+    this.edgePulseTimer = 0;
     this.previousState = null; // for pause
 
     this._setupInput();
@@ -97,7 +98,6 @@ export class Game {
     if (this.state === 'playing') {
       this.previousState = 'playing';
       this.state = 'paused';
-      this.input.enabled = true;
     } else if (this.state === 'paused') {
       this.state = this.previousState || 'playing';
     }
@@ -160,9 +160,15 @@ export class Game {
       this.hud.addNotification('BONUS TIME!', 1.2);
     }
 
-    // Bonus time edge particles
+    // Bonus time edge particles (throttled to ~10/sec)
     if (this.scoring.bonusTimeActive) {
-      this.particles.emitEdgePulse(this.canvas.width, this.canvas.height);
+      this.edgePulseTimer += dt;
+      if (this.edgePulseTimer >= 0.1) {
+        this.particles.emitEdgePulse(this.canvas.width, this.canvas.height);
+        this.edgePulseTimer = 0;
+      }
+    } else {
+      this.edgePulseTimer = 0;
     }
 
     // Check ball collision with hoop
@@ -171,7 +177,7 @@ export class Game {
 
       if (collision === 'swish' || collision === 'score') {
         this._onScore(collision === 'swish');
-      } else if (collision === 'rim') {
+      } else if (collision === 'rim' || collision === 'rim_score_pending') {
         this.audio.playRimHit();
       }
 
@@ -182,9 +188,6 @@ export class Game {
     }
 
     // Reset ball after it's done
-    if ((this.ball.scored || this.ball.missed) && !this.ball.active) {
-      // Ball is already being reset via timer
-    }
     if (this.ball.scored || this.ball.missed) {
       this.ballResetTimer += dt;
       if (this.ballResetTimer > 0.6) {
@@ -194,14 +197,15 @@ export class Game {
       }
     }
 
-    // Check time's up
-    if (timerResult.timeUp) {
-      this._onTimeUp();
-    }
-
-    // Check stage complete
+    // Check stage complete before time-up (completing target trumps timer)
     if (this.scoring.isStageComplete() && this.state === 'playing') {
       this._onStageClear();
+      return;
+    }
+
+    // Check time's up
+    if (timerResult.timeUp && this.state === 'playing') {
+      this._onTimeUp();
     }
   }
 

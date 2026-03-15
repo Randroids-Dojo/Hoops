@@ -111,9 +111,9 @@ export class Lane {
 
   _drawRails(ctx, topY, bottomY, leftBottom, rightBottom, leftTop, rightTop) {
     // Left rail - cyan LED strip
-    ctx.strokeStyle = COLORS.railCyan;
+    ctx.strokeStyle = COLORS.primary;
     ctx.lineWidth = 3;
-    ctx.shadowColor = COLORS.railCyan;
+    ctx.shadowColor = COLORS.primary;
     ctx.shadowBlur = 12;
     ctx.beginPath();
     ctx.moveTo(leftTop, topY);
@@ -127,9 +127,9 @@ export class Lane {
     ctx.stroke();
 
     // Orange accent on rail edges
-    ctx.strokeStyle = COLORS.railOrange;
+    ctx.strokeStyle = COLORS.secondary;
     ctx.lineWidth = 1.5;
-    ctx.shadowColor = COLORS.railOrange;
+    ctx.shadowColor = COLORS.secondary;
     ctx.shadowBlur = 8;
     ctx.beginPath();
     ctx.moveTo(leftTop - 3, topY);
@@ -167,27 +167,4 @@ export class Lane {
     }
   }
 
-  // Get lane X boundaries at a given Y position (for ball constraints)
-  getLaneBounds(y, canvas) {
-    const w = canvas.width;
-    const h = canvas.height;
-    const vpX = w / 2;
-    const vpY = h * 0.18;
-
-    const laneWidthBottom = w * 0.7;
-    const laneLeftBottom = (w - laneWidthBottom) / 2;
-    const laneRightBottom = laneLeftBottom + laneWidthBottom;
-    const laneWidthTop = w * 0.12;
-    const laneLeftTop = vpX - laneWidthTop / 2;
-    const laneRightTop = vpX + laneWidthTop / 2;
-
-    const floorTopY = vpY + h * 0.05;
-    const floorBottomY = h * 0.95;
-
-    const t = Math.max(0, Math.min(1, (y - floorTopY) / (floorBottomY - floorTopY)));
-    return {
-      left: lerp(laneLeftTop, laneLeftBottom, t),
-      right: lerp(laneRightTop, laneRightBottom, t),
-    };
-  }
 }

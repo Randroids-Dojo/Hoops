@@ -4,7 +4,6 @@ import { STREAK, BONUS_TIME_THRESHOLD, getStageData } from './utils.js';
 
 export class Scoring {
   constructor() {
-    this.score = 0;
     this.streak = 0;
     this.stageNum = 1;
     this.stageScore = 0; // score earned in current stage
@@ -17,7 +16,6 @@ export class Scoring {
   }
 
   reset() {
-    this.score = 0;
     this.streak = 0;
     this.stageNum = 1;
     this.stageScore = 0;
@@ -63,7 +61,6 @@ export class Scoring {
       points *= 2;
     }
 
-    this.score += points;
     this.stageScore += points;
     this.totalScore += points;
 

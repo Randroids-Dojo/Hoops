@@ -52,8 +52,9 @@ export class HUD {
     const timeColor = scoring.timeRemaining <= BONUS_TIME_THRESHOLD ? COLORS.red : COLORS.white;
     ctx.fillStyle = timeColor;
     ctx.font = 'bold 32px monospace';
-    const minutes = Math.floor(scoring.timeRemaining / 60);
-    const seconds = Math.ceil(scoring.timeRemaining % 60);
+    const totalSecs = Math.ceil(scoring.timeRemaining);
+    const minutes = Math.floor(totalSecs / 60);
+    const seconds = totalSecs % 60;
     const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
     ctx.fillText(timeStr, w / 2, padding + 48);
 

@@ -73,7 +73,6 @@ export class Input {
 
     // Check if it's a swipe upward (dy should be negative for upward)
     if (distance > MIN_SWIPE_DISTANCE && dy < -MIN_SWIPE_DISTANCE) {
-      const speed = distance / Math.max(elapsed, 0.01);
       // Power from vertical speed, angle from horizontal offset
       const power = Math.abs(dy) / Math.max(elapsed, 0.01);
       const lateralAngle = dx / Math.max(Math.abs(dy), 1); // -1 to 1 roughly

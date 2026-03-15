@@ -1,6 +1,6 @@
 // Ball physics and rendering
 
-import { COLORS, GRAVITY, BALL_RADIUS_BASE, clamp, lerp, perspectiveScale } from './utils.js';
+import { COLORS, GRAVITY, BALL_RADIUS_BASE, clamp, lerp } from './utils.js';
 
 export class Ball {
   constructor(canvas) {
@@ -34,8 +34,8 @@ export class Ball {
     if (this.active) return;
     this.active = true;
 
-    // Vertical velocity (upward is negative)
-    this.vy = -clamp(power, 600, 1800);
+    // Vertical velocity (upward is negative, power already clamped by caller)
+    this.vy = -power;
     // Horizontal based on lateral aim
     this.vx = lateralAngle * 300;
     // Depth velocity - ball travels toward hoop
@@ -93,9 +93,9 @@ export class Ball {
     const t = clamp(this.z, 0, 2) / 2;
 
     const screenX = lerp(this.x, vpX, t * 0.6);
-    const screenY = lerp(this.y, vpY, t * 0.3) + this.y * (1 - t) * 0;
+    const screenY = lerp(this.y, vpY + 50, t * 0.5);
 
-    return { x: screenX, y: lerp(this.y, vpY + 50, t * 0.5) };
+    return { x: screenX, y: screenY };
   }
 
   render(ctx) {

@@ -8,19 +8,12 @@ export const COLORS = {
   scoreGreen: '#00FF41',   // Neon green
   white: '#FFFFFF',
   red: '#FF3333',
-  fireOrange: '#FF6B00',
-  fireYellow: '#FFD700',
-  fireWhite: '#FFFFFF',
   rimOrange: '#FF8C00',
   basketball: '#E87621',
   basketballDark: '#CC5500',
   seamBlack: '#333333',
   netWhite: '#DDDDDD',
   backboard: '#222222',
-  laneFloor: '#8B6914',
-  laneFloorDark: '#6B4F10',
-  railCyan: '#00E5FF',
-  railOrange: '#FF6B00',
   shadow: 'rgba(0,0,0,0.4)',
 };
 
@@ -80,15 +73,4 @@ export function dist(x1, y1, x2, y2) {
 
 export function randomRange(min, max) {
   return min + Math.random() * (max - min);
-}
-
-// Map a value from one range to another
-export function mapRange(value, inMin, inMax, outMin, outMax) {
-  return outMin + ((value - inMin) / (inMax - inMin)) * (outMax - outMin);
-}
-
-// Get perspective scale factor based on y position (0=top/far, 1=bottom/near)
-export function perspectiveScale(y, canvasHeight) {
-  const t = y / canvasHeight;
-  return 0.3 + t * 0.7; // 0.3 at top, 1.0 at bottom
 }
