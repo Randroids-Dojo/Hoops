@@ -14,16 +14,17 @@ import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 
 export class Game {
-  constructor(canvas, ctx) {
+  constructor(canvas, ctx, world3d) {
     this.canvas = canvas;
     this.ctx = ctx;
+    this.world3d = world3d;
     // States: title, playing, stageClear, gameOver, paused, nameEntry, leaderboard
     this.state = 'title';
     this.lastTime = 0;
 
     // Initialize subsystems
-    this.ball = new Ball(canvas);
-    this.hoop = new Hoop(canvas);
+    this.ball = new Ball(world3d);
+    this.hoop = new Hoop(world3d);
     this.lane = new Lane();
     this.hud = new HUD();
     this.input = new Input(canvas);
@@ -342,6 +343,7 @@ export class Game {
   }
 
   _updatePlaying(dt) {
+    this.world3d.step(dt);
     this.lane.update(dt);
     this.hoop.update(dt);
     this.ball.update(dt);
@@ -396,6 +398,7 @@ export class Game {
       if (this.ballResetTimer > 0.6) {
         this.ball.reset();
         this.ball.streakLevel = this.scoring.getStreakLevel();
+        this.hoop.resetForShot();
         this.ballResetTimer = 0;
       }
     }
@@ -473,6 +476,7 @@ export class Game {
   }
 
   _updateStageClear(dt) {
+    this.world3d.step(dt);
     this.lane.update(dt);
     this.hoop.update(dt);
 
@@ -491,13 +495,10 @@ export class Game {
     // Update pause button visibility
     this._updatePauseButton();
 
-    // Clear
-    ctx.fillStyle = COLORS.background;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 3D scene draws to its own canvas; here we render the 2D HUD overlay.
+    this.world3d.render();
 
-    // Always render lane and hoop as background
-    this.lane.render(ctx, canvas);
-    this.hoop.render(ctx);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (this.state === 'title') {
       this.particles.render(ctx);
@@ -506,7 +507,6 @@ export class Game {
     }
 
     if (this.state === 'playing' || this.state === 'paused') {
-      this.ball.render(ctx);
       this.particles.render(ctx);
       this.hud.render(ctx, canvas, this.scoring);
 
@@ -551,8 +551,9 @@ export class Game {
     const delta = this.input.getDragDelta();
     if (delta.dy >= 0) return; // only show for upward drags
 
-    const startX = this.ball.x;
-    const startY = this.ball.y;
+    const screen = this.ball.getScreenPos();
+    const startX = screen.x;
+    const startY = screen.y;
 
     // Arrow showing throw direction
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -568,8 +569,8 @@ export class Game {
     const power = Math.abs(delta.dy) / this.canvas.height;
     const barWidth = 4;
     const barHeight = 60;
-    const barX = this.ball.x + 40;
-    const barY = this.ball.y - barHeight;
+    const barX = startX + 40;
+    const barY = startY - barHeight;
 
     ctx.fillStyle = 'rgba(255,255,255,0.2)';
     ctx.fillRect(barX, barY, barWidth, barHeight);

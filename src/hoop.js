@@ -1,251 +1,385 @@
-// Hoop rendering and collision detection
+// Real 3D hoop — backboard, rim, net, post — with cannon-es physics bodies.
+// Detects scoring by watching the ball's position cross the rim plane.
 
-import { COLORS, RIM_RADIUS, RIM_BOUNCE_DAMPING, dist } from './utils.js';
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { COURT, GROUP } from './world3d.js';
+
+const RIM_SEGMENTS = 22; // sphere segments forming the rim's collision torus
+const NET_STRANDS = 14;
+const NET_RINGS = 6;
+const NET_LENGTH = 0.42;
 
 export class Hoop {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.baseX = canvas.width / 2;
-    this.baseY = canvas.height * 0.28;
-    this.x = this.baseX;
-    this.y = this.baseY;
-    this.rimRadius = RIM_RADIUS;
+  constructor(world3d) {
+    this.world3d = world3d;
+    this.rimCenter = COURT.rim.clone();
+    this.rimRadius = COURT.rimRadius;
+
+    this.assembly = new THREE.Group();
+    world3d.scene.add(this.assembly);
+
     this.moveSpeed = 0;
     this.moveAmplitude = 0;
     this.movePhase = 0;
-    this.netPoints = [];
-    this.netSwayTime = 0;
-    this.netRipple = 0;
+    this.offsetX = 0;
     this.fireIntensity = 0;
-    this._initNet();
+    this._netRipple = 0;
+    this._netTime = 0;
+
+    this._buildVisuals();
+    this._buildPhysics();
+    this._reposition(0);
+
+    // Scoring state
+    this._lastBallY = null;
+    this._sensorActive = false;
+    this._sensorEntered = false; // ball has entered scoring cylinder from above
+    this._lastRimContactTime = -10;
+
+    // Listen for ball-rim / ball-backboard contacts to know if it's a swish
+    world3d.physicsWorld.addEventListener('beginContact', (e) => {
+      const isBall = (b) => b && b.material && b.material.name === 'ball';
+      const isHardware = (b) => b && (b.userData?.isRim || b.userData?.isBackboard);
+      if ((isBall(e.bodyA) && isHardware(e.bodyB)) || (isBall(e.bodyB) && isHardware(e.bodyA))) {
+        this._lastRimContactTime = performance.now() / 1000;
+      }
+    });
   }
 
-  _initNet() {
-    // Net is a series of points forming a simple mesh
-    this.netPoints = [];
-    const segments = 8;
-    const depth = 5;
-    for (let row = 0; row < depth; row++) {
-      const rowPoints = [];
-      for (let col = 0; col <= segments; col++) {
-        const angle = (col / segments) * Math.PI;
-        const r = this.rimRadius * (1 - row * 0.08);
-        rowPoints.push({
-          baseX: Math.cos(angle) * r,
-          baseY: row * 8,
-          offsetX: 0,
-          offsetY: 0,
-        });
+  _buildVisuals() {
+    // ── Backboard ─────────────────────────────────────────────────────
+    const bb = COURT.backboardSize;
+    const boardGroup = new THREE.Group();
+
+    const board = new THREE.Mesh(
+      new THREE.BoxGeometry(bb.w, bb.h, bb.d),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xf6f6f6,
+        roughness: 0.12,
+        metalness: 0.0,
+        transmission: 0.45,
+        thickness: 0.05,
+        clearcoat: 0.4,
+        ior: 1.45,
+      }),
+    );
+    board.castShadow = true;
+    board.receiveShadow = true;
+    boardGroup.add(board);
+
+    // Border frame
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(bb.w + 0.04, bb.h + 0.04, bb.d * 0.8),
+      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.6 }),
+    );
+    frame.position.z = -bb.d * 0.1;
+    boardGroup.add(frame);
+
+    // Shooter's square
+    const sqW = bb.w * 0.32;
+    const sqH = bb.h * 0.34;
+    const squarePts = [
+      new THREE.Vector3(-sqW / 2, -sqH / 2, bb.d / 2 + 0.001),
+      new THREE.Vector3( sqW / 2, -sqH / 2, bb.d / 2 + 0.001),
+      new THREE.Vector3( sqW / 2,  sqH / 2, bb.d / 2 + 0.001),
+      new THREE.Vector3(-sqW / 2,  sqH / 2, bb.d / 2 + 0.001),
+      new THREE.Vector3(-sqW / 2, -sqH / 2, bb.d / 2 + 0.001),
+    ];
+    const square = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(squarePts),
+      new THREE.LineBasicMaterial({ color: 0xff2233 }),
+    );
+    square.position.y = -bb.h * 0.06;
+    boardGroup.add(square);
+
+    boardGroup.position.set(this.rimCenter.x, this.rimCenter.y + 0.32, this.rimCenter.z - COURT.backboardOffset);
+    this.assembly.add(boardGroup);
+    this.boardGroup = boardGroup;
+
+    // ── Rim (torus) ──────────────────────────────────────────────────
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(this.rimRadius, COURT.rimTube, 16, 36),
+      new THREE.MeshStandardMaterial({ color: 0xff5a1f, roughness: 0.35, metalness: 0.7, emissive: 0x331100, emissiveIntensity: 0.2 }),
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.copy(this.rimCenter);
+    rim.castShadow = true;
+    this.assembly.add(rim);
+    this.rim = rim;
+
+    // Connector arm rim → backboard
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.04, COURT.backboardOffset),
+      new THREE.MeshStandardMaterial({ color: 0x222, roughness: 0.4, metalness: 0.6 }),
+    );
+    arm.position.set(this.rimCenter.x, this.rimCenter.y + 0.02, this.rimCenter.z - COURT.backboardOffset / 2);
+    this.assembly.add(arm);
+    this.armMesh = arm;
+
+    // Fire ring (additive torus that pulses for streak)
+    this.fireRing = new THREE.Mesh(
+      new THREE.TorusGeometry(this.rimRadius * 1.15, 0.025, 12, 36),
+      new THREE.MeshBasicMaterial({ color: 0xff6b00, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.fireRing.rotation.x = Math.PI / 2;
+    this.fireRing.position.copy(this.rimCenter);
+    this.assembly.add(this.fireRing);
+
+    // ── Stanchion / pole behind backboard ───────────────────────────
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1d1f24, roughness: 0.6, metalness: 0.4 });
+    const armBack = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.7), poleMat);
+    armBack.position.set(this.rimCenter.x, this.rimCenter.y + 0.4, this.rimCenter.z - COURT.backboardOffset - 0.4);
+    this.assembly.add(armBack);
+
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.22, this.rimCenter.y + 0.4, 0.22), poleMat);
+    pole.position.set(this.rimCenter.x, (this.rimCenter.y + 0.4) / 2, this.rimCenter.z - COURT.backboardOffset - 0.7);
+    pole.castShadow = true;
+    this.assembly.add(pole);
+
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.9), poleMat);
+    base.position.set(this.rimCenter.x, 0.04, this.rimCenter.z - COURT.backboardOffset - 0.7);
+    this.assembly.add(base);
+
+    // ── Net ──────────────────────────────────────────────────────────
+    this._buildNet();
+  }
+
+  _buildNet() {
+    const positions = [];
+    const indices = [];
+    const idx = (s, r) => s * (NET_RINGS + 1) + r;
+
+    for (let s = 0; s < NET_STRANDS; s++) {
+      const a = (s / NET_STRANDS) * Math.PI * 2;
+      for (let r = 0; r <= NET_RINGS; r++) {
+        const t = r / NET_RINGS;
+        const radius = this.rimRadius * (1 - t * 0.55);
+        const x = Math.cos(a) * radius;
+        const y = -t * NET_LENGTH;
+        const z = Math.sin(a) * radius;
+        positions.push(x, y, z);
       }
-      this.netPoints.push(rowPoints);
     }
+    for (let s = 0; s < NET_STRANDS; s++) {
+      const sNext = (s + 1) % NET_STRANDS;
+      for (let r = 0; r < NET_RINGS; r++) {
+        // vertical strand
+        indices.push(idx(s, r), idx(s, r + 1));
+        // diagonal cross to next strand
+        indices.push(idx(s, r), idx(sNext, r + 1));
+        if (r > 0) {
+          // horizontal ring
+          indices.push(idx(s, r), idx(sNext, r));
+        }
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setIndex(indices);
+
+    // Save base positions for sway animation
+    this._netBase = new Float32Array(positions);
+
+    const net = new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }),
+    );
+    net.position.copy(this.rimCenter);
+    this.assembly.add(net);
+    this.net = net;
+  }
+
+  _buildPhysics() {
+    // Rim modeled as ring of small spheres (cannon has no torus).
+    this.rimBodies = [];
+    for (let i = 0; i < RIM_SEGMENTS; i++) {
+      const a = (i / RIM_SEGMENTS) * Math.PI * 2;
+      const body = new CANNON.Body({
+        type: CANNON.Body.KINEMATIC,
+        shape: new CANNON.Sphere(COURT.rimTube * 1.4),
+        material: this.world3d.materials.rim,
+        collisionFilterGroup: GROUP.RIM,
+        collisionFilterMask: GROUP.BALL,
+      });
+      body.userData = { isRim: true };
+      body.position.set(
+        this.rimCenter.x + Math.cos(a) * this.rimRadius,
+        this.rimCenter.y,
+        this.rimCenter.z + Math.sin(a) * this.rimRadius,
+      );
+      this.world3d.physicsWorld.addBody(body);
+      this.rimBodies.push({ body, angle: a });
+    }
+
+    // Backboard
+    const bb = COURT.backboardSize;
+    this.backboardBody = new CANNON.Body({
+      type: CANNON.Body.KINEMATIC,
+      shape: new CANNON.Box(new CANNON.Vec3(bb.w / 2, bb.h / 2, bb.d / 2)),
+      material: this.world3d.materials.backboard,
+      collisionFilterGroup: GROUP.BACKBOARD,
+      collisionFilterMask: GROUP.BALL,
+    });
+    this.backboardBody.userData = { isBackboard: true };
+    this.backboardBody.position.set(
+      this.rimCenter.x,
+      this.rimCenter.y + 0.32,
+      this.rimCenter.z - COURT.backboardOffset,
+    );
+    this.world3d.physicsWorld.addBody(this.backboardBody);
+  }
+
+  _reposition(offsetX) {
+    this.offsetX = offsetX;
+    const cx = this.rimCenter.x + offsetX;
+
+    // Visuals
+    this.assembly.position.x = offsetX;
+
+    // Physics — kinematic bodies need direct position updates
+    for (const { body, angle } of this.rimBodies) {
+      body.position.set(
+        cx + Math.cos(angle) * this.rimRadius,
+        this.rimCenter.y,
+        this.rimCenter.z + Math.sin(angle) * this.rimRadius,
+      );
+    }
+    this.backboardBody.position.set(
+      cx,
+      this.rimCenter.y + 0.32,
+      this.rimCenter.z - COURT.backboardOffset,
+    );
   }
 
   setMovement(speed, amplitude) {
+    // Original units were "phase rad/s" and "pixels". Map amplitude px → meters.
     this.moveSpeed = speed;
-    this.moveAmplitude = amplitude;
+    this.moveAmplitude = amplitude * 0.02; // 80px ≈ 1.6m sway
   }
 
   setFireIntensity(intensity) {
     this.fireIntensity = intensity;
   }
 
-  update(dt) {
-    this.baseX = this.canvas.width / 2;
-    this.baseY = this.canvas.height * 0.28;
+  triggerNetRipple() {
+    this._netRipple = 1;
+    this._netTime = 0;
+  }
 
-    // Hoop movement
+  // Property accessors used by HUD/particles for screen positioning.
+  get x() {
+    const p = this.world3d.projectToScreen(new THREE.Vector3(this.rimCenter.x + this.offsetX, this.rimCenter.y, this.rimCenter.z));
+    return p.x;
+  }
+  get y() {
+    const p = this.world3d.projectToScreen(new THREE.Vector3(this.rimCenter.x + this.offsetX, this.rimCenter.y, this.rimCenter.z));
+    return p.y;
+  }
+
+  update(dt) {
+    // Hoop oscillation
     if (this.moveSpeed > 0) {
       this.movePhase += this.moveSpeed * dt;
-      this.x = this.baseX + Math.sin(this.movePhase) * this.moveAmplitude;
+      this._reposition(Math.sin(this.movePhase) * this.moveAmplitude);
+    } else if (this.offsetX !== 0) {
+      this._reposition(0);
+    }
+
+    // Net animation
+    this._netTime += dt;
+    if (this._netRipple > 0) this._netRipple = Math.max(0, this._netRipple - dt * 1.6);
+    this._animateNet(dt);
+
+    // Fire ring pulse for streaks
+    if (this.fireIntensity > 0) {
+      const pulse = 0.45 + Math.sin(performance.now() * 0.012) * 0.2;
+      this.fireRing.material.opacity = clamp01(this.fireIntensity * pulse);
+      const colors = [0xff8c00, 0xff4500, 0xff2200, 0xff00ff];
+      this.fireRing.material.color.setHex(colors[Math.min(Math.floor(this.fireIntensity * 3), 3)]);
+      this.fireRing.scale.setScalar(1 + Math.sin(performance.now() * 0.01) * 0.05);
     } else {
-      this.x = this.baseX;
+      this.fireRing.material.opacity = 0;
     }
-    this.y = this.baseY;
+  }
 
-    // Net sway physics
-    this.netSwayTime += dt;
-    if (this.netRipple > 0) {
-      this.netRipple -= dt * 3;
-      if (this.netRipple < 0) this.netRipple = 0;
-    }
-
-    // Update net points for sway
-    for (let row = 0; row < this.netPoints.length; row++) {
-      for (let col = 0; col < this.netPoints[row].length; col++) {
-        const swayAmount = row * 0.5;
-        const rippleOffset = this.netRipple * Math.sin(this.netSwayTime * 15 + col) * row * 2;
-        this.netPoints[row][col].offsetX = Math.sin(this.netSwayTime * 2 + col * 0.5) * swayAmount + rippleOffset;
-        this.netPoints[row][col].offsetY = Math.sin(this.netSwayTime * 3 + row) * swayAmount * 0.3;
+  _animateNet(dt) {
+    const arr = this.net.geometry.attributes.position.array;
+    const base = this._netBase;
+    const ripple = this._netRipple;
+    const t = this._netTime;
+    for (let s = 0; s < NET_STRANDS; s++) {
+      for (let r = 0; r <= NET_RINGS; r++) {
+        const i = (s * (NET_RINGS + 1) + r) * 3;
+        const sway = (r / NET_RINGS) * 0.012;
+        const wobble = sway * Math.sin(t * 2.4 + s * 0.6);
+        const drop = ripple * (r / NET_RINGS) * 0.07 * Math.sin(t * 14 + s);
+        arr[i + 0] = base[i + 0] + Math.sin(t * 1.7 + s) * sway * 0.6 + wobble * Math.cos(s);
+        arr[i + 1] = base[i + 1] - drop * 0.4;
+        arr[i + 2] = base[i + 2] + Math.cos(t * 1.5 + s) * sway * 0.6 + wobble * Math.sin(s);
       }
     }
+    this.net.geometry.attributes.position.needsUpdate = true;
   }
 
-  triggerNetRipple() {
-    this.netRipple = 1;
-    this.netSwayTime = 0;
-  }
-
-  // Check collision with ball, returns: 'score', 'swish', 'rim', or null
+  // Score detection: returns 'swish' | 'score' | 'rim' | null.
+  // Called every frame from Game while ball is active.
   checkCollision(ball) {
     if (!ball.active || ball.scored || ball.missed) return null;
 
-    const ballPos = ball.getScreenPos();
-    const ballRadius = ball.getRadius();
+    const cx = this.rimCenter.x + this.offsetX;
+    const cy = this.rimCenter.y;
+    const cz = this.rimCenter.z;
 
-    // Ball needs to be in the right depth range
-    if (ball.z < 0.6 || ball.z > 1.5) return null;
+    const p = ball.body.position;
+    const dx = p.x - cx;
+    const dz = p.z - cz;
+    const horiz = Math.sqrt(dx * dx + dz * dz);
 
-    // Check if ball passes through the hoop (scoring zone)
-    const distToCenter = dist(ballPos.x, ballPos.y, this.x, this.y);
-    const scoringThreshold = this.rimRadius * 0.7;
-    const rimWidth = 6;
-
-    if (distToCenter < scoringThreshold && ball.vy > 0) {
-      // Ball is going through the hoop downward
-      const rimDist = Math.abs(distToCenter - this.rimRadius);
-      if (rimDist > rimWidth * 2) {
-        return 'swish';
-      }
-      return 'score';
+    // Track rim hit (used to distinguish swish from board score)
+    if ((performance.now() / 1000 - this._lastRimContactTime) < 0.25) {
+      ball.rimHit = true;
     }
 
-    // Check rim collision
-    const rimDist = Math.abs(distToCenter - this.rimRadius);
-    if (rimDist < rimWidth + ballRadius * 0.3 && !ball.rimHit) {
-      // Bounce off rim
-      const angle = Math.atan2(ballPos.y - this.y, ballPos.x - this.x);
-      ball.vx = Math.cos(angle) * Math.abs(ball.vy) * RIM_BOUNCE_DAMPING;
-      ball.vy = -Math.abs(ball.vy) * RIM_BOUNCE_DAMPING * (0.5 + Math.random() * 0.3);
-      ball.rimHit = true;
+    // Sensor: ball must descend (vy<0) and pass through the disk above the rim.
+    // We look for: enter zone above rim (y > rim, horiz < rim), then exit below.
+    const inCylinder = horiz < this.rimRadius * 0.95;
+    const above = p.y > cy + COURT.ballRadius * 0.5;
+    const below = p.y < cy - COURT.ballRadius * 0.4;
+    const descending = ball.body.velocity.y < 0;
 
-      // After rim hit, check if ball might still go in
-      // Give it a chance based on angle
-      if (distToCenter < this.rimRadius && ball.vy > -100) {
-        return 'rim_score_pending';
-      }
+    if (inCylinder && above && descending) {
+      this._sensorEntered = true;
+    }
+
+    let result = null;
+    if (this._sensorEntered && inCylinder && below) {
+      // Ball passed through the rim cleanly
+      result = ball.rimHit ? 'score' : 'swish';
+      this._sensorEntered = false;
+      this.triggerNetRipple();
+    } else if (this._sensorEntered && !inCylinder && p.y < cy) {
+      // Ball was inside but exited the cylinder before fully descending — bailed
+      this._sensorEntered = false;
+    }
+
+    if (result) return result;
+
+    // Report rim hits (used for audio cue in Game)
+    if (ball.rimHit && !this._reportedRim) {
+      this._reportedRim = true;
       return 'rim';
     }
-
-    // After rim hit, check if ball now goes through
-    if (ball.rimHit && distToCenter < scoringThreshold && ball.vy > 0 && ball.z > 0.8) {
-      return 'score';
-    }
+    if (!ball.rimHit) this._reportedRim = false;
 
     return null;
   }
 
-  render(ctx) {
-    // Draw backboard
-    this._drawBackboard(ctx);
-
-    // Draw fire on rim if active
-    if (this.fireIntensity > 0) {
-      this._drawFire(ctx);
-    }
-
-    // Draw rim
-    this._drawRim(ctx);
-
-    // Draw net
-    this._drawNet(ctx);
-  }
-
-  _drawBackboard(ctx) {
-    const bbWidth = this.rimRadius * 3.5;
-    const bbHeight = this.rimRadius * 2.5;
-    const bbX = this.x - bbWidth / 2;
-    const bbY = this.y - bbHeight * 0.9;
-
-    // Backboard
-    ctx.fillStyle = COLORS.backboard;
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 2;
-    ctx.fillRect(bbX, bbY, bbWidth, bbHeight);
-    ctx.strokeRect(bbX, bbY, bbWidth, bbHeight);
-
-    // Inner square on backboard
-    const innerW = bbWidth * 0.45;
-    const innerH = bbHeight * 0.5;
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(this.x - innerW / 2, bbY + bbHeight * 0.15, innerW, innerH);
-  }
-
-  _drawRim(ctx) {
-    // Rim - orange metallic
-    ctx.strokeStyle = COLORS.rimOrange;
-    ctx.lineWidth = 5;
-    ctx.shadowColor = COLORS.rimOrange;
-    ctx.shadowBlur = 4;
-    ctx.beginPath();
-    ctx.ellipse(this.x, this.y, this.rimRadius, this.rimRadius * 0.25, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Rim connector to backboard
-    ctx.strokeStyle = '#888';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(this.x, this.y);
-    ctx.lineTo(this.x, this.y - 10);
-    ctx.stroke();
-  }
-
-  _drawNet(ctx) {
-    ctx.strokeStyle = COLORS.netWhite;
-    ctx.lineWidth = 1;
-
-    for (let row = 0; row < this.netPoints.length - 1; row++) {
-      const currentRow = this.netPoints[row];
-      const nextRow = this.netPoints[row + 1];
-
-      for (let col = 0; col < currentRow.length - 1; col++) {
-        const p1 = currentRow[col];
-        const p2 = currentRow[col + 1];
-        const p3 = nextRow[col];
-
-        // Vertical threads
-        ctx.globalAlpha = 0.6;
-        ctx.beginPath();
-        ctx.moveTo(this.x + p1.baseX + p1.offsetX, this.y + p1.baseY + p1.offsetY + 5);
-        ctx.lineTo(this.x + p3.baseX + p3.offsetX, this.y + p3.baseY + p3.offsetY + 5);
-        ctx.stroke();
-
-        // Horizontal threads
-        if (row > 0) {
-          ctx.beginPath();
-          ctx.moveTo(this.x + p1.baseX + p1.offsetX, this.y + p1.baseY + p1.offsetY + 5);
-          ctx.lineTo(this.x + p2.baseX + p2.offsetX, this.y + p2.baseY + p2.offsetY + 5);
-          ctx.stroke();
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  _drawFire(ctx) {
-    const flameCount = Math.floor(8 + this.fireIntensity * 8);
-    const time = Date.now() * 0.005;
-
-    for (let i = 0; i < flameCount; i++) {
-      const angle = (i / flameCount) * Math.PI * 2;
-      const fx = this.x + Math.cos(angle) * this.rimRadius;
-      const fy = this.y + Math.sin(angle) * this.rimRadius * 0.25;
-      const flameHeight = (15 + Math.sin(time + i * 2) * 10) * this.fireIntensity;
-      const flameWidth = 4 + Math.random() * 4;
-
-      const grad = ctx.createLinearGradient(fx, fy, fx, fy - flameHeight);
-      grad.addColorStop(0, `rgba(255, 100, 0, ${0.6 * this.fireIntensity})`);
-      grad.addColorStop(0.5, `rgba(255, 200, 0, ${0.4 * this.fireIntensity})`);
-      grad.addColorStop(1, `rgba(255, 255, 200, 0)`);
-
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(fx - flameWidth / 2, fy);
-      ctx.quadraticCurveTo(fx + Math.sin(time + i) * 3, fy - flameHeight / 2, fx, fy - flameHeight);
-      ctx.quadraticCurveTo(fx + Math.sin(time + i + 1) * 3, fy - flameHeight / 2, fx + flameWidth / 2, fy);
-      ctx.fill();
-    }
+  resetForShot() {
+    this._sensorEntered = false;
+    this._reportedRim = false;
   }
 }
+
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }

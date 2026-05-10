@@ -1,194 +1,219 @@
-// Ball physics and rendering
+// Real 3D basketball — Three.js mesh driven by cannon-es rigid body.
 
-import { COLORS, GRAVITY, BALL_RADIUS_BASE, clamp, lerp } from './utils.js';
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { COURT, GROUP, makeBasketballTexture, makeBasketballBumpMap } from './world3d.js';
+import { clamp } from './utils.js';
+
+// Tunable launch mapping. Input.power arrives in screen-pixels/sec roughly in
+// [300, 1800] after clamping. Map to a realistic launch speed in m/s.
+const MIN_SPEED_MS = 6.5;
+const MAX_SPEED_MS = 11.5;
+const LAUNCH_PITCH = 55 * Math.PI / 180; // ~55° arc — classic free-throw angle
 
 export class Ball {
-  constructor(canvas) {
-    this.canvas = canvas;
+  constructor(world3d) {
+    this.world3d = world3d;
+    this.streakLevel = 0;
+
+    // ── Visual mesh ────────────────────────────────────────────────────
+    const tex = makeBasketballTexture();
+    const bump = makeBasketballBumpMap();
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      bumpMap: bump,
+      bumpScale: 0.012,
+      roughness: 0.78,
+      metalness: 0.05,
+    });
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(COURT.ballRadius, 48, 32), mat);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = false;
+    world3d.scene.add(this.mesh);
+
+    // Glow halo for streaks (additive sphere just outside the ball)
+    this.glow = new THREE.Mesh(
+      new THREE.SphereGeometry(COURT.ballRadius * 1.4, 24, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff6b00, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    world3d.scene.add(this.glow);
+
+    // Trail (line segments behind ball during streaks)
+    this.trailPositions = [];
+    this.trailLine = new THREE.Line(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(60 * 3), 3)),
+      new THREE.LineBasicMaterial({ color: 0xff6b00, transparent: true, opacity: 0.7 }),
+    );
+    this.trailLine.frustumCulled = false;
+    this.trailLine.visible = false;
+    world3d.scene.add(this.trailLine);
+
+    // ── Physics body ───────────────────────────────────────────────────
+    this.body = new CANNON.Body({
+      mass: COURT.ballMass,
+      shape: new CANNON.Sphere(COURT.ballRadius),
+      material: world3d.materials.ball,
+      linearDamping: 0.18,
+      angularDamping: 0.25,
+      collisionFilterGroup: GROUP.BALL,
+      collisionFilterMask: GROUP.RIM | GROUP.BACKBOARD | GROUP.FLOOR | GROUP.WALL,
+    });
+    this.body.allowSleep = true;
+    this.body.sleepSpeedLimit = 0.2;
+    this.body.sleepTimeLimit = 0.6;
+    world3d.physicsWorld.addBody(this.body);
+
+    // ── State (mirrors original public API) ────────────────────────────
+    this.active = false;   // in flight?
+    this.scored = false;
+    this.missed = false;
+    this.rimHit = false;   // touched the rim/backboard
+    this.visible = true;
+    this.flightTime = 0;
+
     this.reset();
-    this.rotation = 0;
-    this.rotationSpeed = 0;
-    this.streakLevel = 0; // 0=none, 1=heating, 2=fire, 3=blazing, 4=unstoppable
   }
 
   reset() {
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    this.x = w / 2;
-    this.y = h * 0.82;
-    this.z = 0; // depth: 0 = at player, 1 = at hoop
-    this.vx = 0;
-    this.vy = 0;
-    this.vz = 0;
-    this.active = false;   // is ball in flight?
+    const p = COURT.ballSpawn;
+    this.body.wakeUp();
+    this.body.position.set(p.x, p.y, p.z);
+    this.body.previousPosition.set(p.x, p.y, p.z);
+    this.body.velocity.set(0, 0, 0);
+    this.body.angularVelocity.set(0, 0, 0);
+    this.body.quaternion.set(0, 0, 0, 1);
+    this.body.sleep();
+    this.body.collisionFilterMask = GROUP.RIM | GROUP.BACKBOARD | GROUP.FLOOR | GROUP.WALL;
+
+    this.mesh.position.copy(p);
+    this.mesh.quaternion.identity();
+    this.glow.position.copy(p);
+    this.trailPositions.length = 0;
+    this._writeTrail();
+    this.trailLine.visible = false;
+
+    this.active = false;
     this.scored = false;
     this.missed = false;
     this.rimHit = false;
     this.visible = true;
-    this.rotation = 0;
-    this.rotationSpeed = 0;
-    this.trail = [];
+    this.flightTime = 0;
+    this.mesh.visible = true;
   }
 
+  // power: drag pixels/sec (already clamped to [MIN_THROW_SPEED, MAX_THROW_SPEED])
+  // lateralAngle: -1..1 horizontal aim
   throwBall(power, lateralAngle) {
     if (this.active) return;
     this.active = true;
+    this.scored = false;
+    this.missed = false;
+    this.rimHit = false;
+    this.flightTime = 0;
 
-    // Vertical velocity (upward is negative, power already clamped by caller)
-    this.vy = -power;
-    // Horizontal based on lateral aim
-    this.vx = lateralAngle * 300;
-    // Depth velocity - ball travels toward hoop
-    this.vz = clamp(power * 0.001, 0.8, 2.0);
+    // Map drag power → launch speed
+    const t = clamp((power - 300) / 1500, 0, 1);
+    const speed = MIN_SPEED_MS + (MAX_SPEED_MS - MIN_SPEED_MS) * t;
 
-    this.rotationSpeed = (Math.random() - 0.5) * 15 + power * 0.005;
+    // Aim vector toward hoop with horizontal jitter from lateralAngle
+    const yaw = clamp(lateralAngle, -1, 1) * 0.18; // ~10° max sideways
+    const dirX = Math.sin(yaw);
+    const dirZ = -Math.cos(yaw);
+
+    const horiz = speed * Math.cos(LAUNCH_PITCH);
+    const vert = speed * Math.sin(LAUNCH_PITCH);
+
+    this.body.wakeUp();
+    this.body.velocity.set(dirX * horiz, vert, dirZ * horiz);
+
+    // Backspin — torque around the X axis (rotated by yaw)
+    const spin = 14 + t * 8;
+    this.body.angularVelocity.set(Math.cos(yaw) * -spin, 0, Math.sin(yaw) * -spin);
+
+    if (this.streakLevel >= 1) {
+      this.trailLine.visible = true;
+      this._setGlow(this.streakLevel);
+    }
   }
 
   update(dt) {
+    // Sync mesh from physics
+    this.mesh.position.copy(this.body.position);
+    this.mesh.quaternion.copy(this.body.quaternion);
+    this.glow.position.copy(this.body.position);
+    this.mesh.visible = this.visible;
+    if (!this.visible) {
+      this.glow.material.opacity = 0;
+      this.trailLine.visible = false;
+    }
+
     if (!this.active) return;
 
-    // Apply gravity
-    this.vy += GRAVITY * dt;
+    this.flightTime += dt;
 
-    // Update position
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    this.z += this.vz * dt;
-
-    // Rotation
-    this.rotation += this.rotationSpeed * dt;
-
-    // Trail for fire effect
+    // Trail
     if (this.streakLevel >= 1) {
-      this.trail.push({ x: this.x, y: this.y, z: this.z, life: 1 });
-      if (this.trail.length > 15) this.trail.shift();
+      this.trailPositions.push(this.mesh.position.clone());
+      if (this.trailPositions.length > 60) this.trailPositions.shift();
+      this._writeTrail();
     }
 
-    // Update trail
-    for (let i = this.trail.length - 1; i >= 0; i--) {
-      this.trail[i].life -= dt * 4;
-      if (this.trail[i].life <= 0) {
-        this.trail.splice(i, 1);
-      }
-    }
+    // Miss conditions: behind backboard, outside court, fell to floor & settled
+    const pos = this.body.position;
+    const speed = this.body.velocity.length();
+    const settled = speed < 0.35 && pos.y < COURT.ballRadius + 0.1;
 
-    // Check if ball went off screen
-    if (this.y > this.canvas.height + 100 || this.z > 3) {
-      if (!this.scored) {
-        this.missed = true;
-      }
+    if (
+      pos.z < COURT.rim.z - 1.5 ||
+      Math.abs(pos.x) > 9 ||
+      pos.y < -1 ||
+      this.flightTime > 6 ||
+      (this.flightTime > 1.5 && settled && !this.scored)
+    ) {
+      if (!this.scored) this.missed = true;
     }
   }
 
-  getRadius() {
-    // Ball gets smaller as it goes further (perspective)
-    const scale = 1 - this.z * 0.35;
-    return BALL_RADIUS_BASE * Math.max(scale, 0.2);
+  setStreakLevel(level) {
+    this.streakLevel = level;
+    if (level >= 1 && this.active) {
+      this.trailLine.visible = true;
+      this._setGlow(level);
+    } else {
+      this.trailLine.visible = false;
+      this.glow.material.opacity = 0;
+    }
   }
 
+  hide() {
+    this.mesh.visible = false;
+    this.glow.material.opacity = 0;
+    this.trailLine.visible = false;
+  }
+
+  _writeTrail() {
+    const arr = this.trailLine.geometry.attributes.position.array;
+    const n = Math.min(this.trailPositions.length, arr.length / 3);
+    for (let i = 0; i < arr.length; i++) arr[i] = 0;
+    for (let i = 0; i < n; i++) {
+      const p = this.trailPositions[this.trailPositions.length - n + i];
+      arr[i * 3 + 0] = p.x;
+      arr[i * 3 + 1] = p.y;
+      arr[i * 3 + 2] = p.z;
+    }
+    this.trailLine.geometry.attributes.position.needsUpdate = true;
+    this.trailLine.geometry.setDrawRange(0, n);
+  }
+
+  _setGlow(level) {
+    const colors = [0xff8c00, 0xff4500, 0xff2200, 0xff00ff];
+    const c = colors[Math.min(level - 1, 3)];
+    this.glow.material.color.setHex(c);
+    this.glow.material.opacity = 0.18 + level * 0.06;
+  }
+
+  // — Helpers used by drag indicator overlay (project ball to screen) —
   getScreenPos() {
-    // Perspective: as z increases, ball moves toward vanishing point
-    const vpX = this.canvas.width / 2;
-    const vpY = this.canvas.height * 0.18;
-    const t = clamp(this.z, 0, 2) / 2;
-
-    const screenX = lerp(this.x, vpX, t * 0.6);
-    const screenY = lerp(this.y, vpY + 50, t * 0.5);
-
-    return { x: screenX, y: screenY };
-  }
-
-  render(ctx) {
-    if (!this.visible) return;
-
-    const pos = this.active ? this.getScreenPos() : { x: this.x, y: this.y };
-    const radius = this.getRadius();
-
-    // Draw fire trail
-    if (this.streakLevel >= 1 && this.active) {
-      this._drawTrail(ctx, radius);
-    }
-
-    // Draw shadow
-    if (this.active) {
-      ctx.fillStyle = COLORS.shadow;
-      ctx.beginPath();
-      ctx.ellipse(pos.x, pos.y + radius + 5, radius * 0.7, radius * 0.2, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.save();
-    ctx.translate(pos.x, pos.y);
-    ctx.rotate(this.rotation);
-
-    // Ball glow for streaks
-    if (this.streakLevel >= 1) {
-      const glowColors = ['#FF8C00', '#FF4500', '#FF2200', '#FF00FF'];
-      const glowColor = glowColors[Math.min(this.streakLevel - 1, 3)];
-      ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 15 + this.streakLevel * 5;
-    }
-
-    // Basketball body
-    const ballGrad = ctx.createRadialGradient(-radius * 0.3, -radius * 0.3, radius * 0.1, 0, 0, radius);
-    ballGrad.addColorStop(0, '#F5942A');
-    ballGrad.addColorStop(0.7, COLORS.basketball);
-    ballGrad.addColorStop(1, COLORS.basketballDark);
-    ctx.fillStyle = ballGrad;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.shadowBlur = 0;
-
-    // Seam lines
-    ctx.strokeStyle = COLORS.seamBlack;
-    ctx.lineWidth = 1.5;
-
-    // Horizontal seam
-    ctx.beginPath();
-    ctx.ellipse(0, 0, radius, radius * 0.15, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Vertical seam
-    ctx.beginPath();
-    ctx.ellipse(0, 0, radius * 0.15, radius, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Curved side seams
-    ctx.beginPath();
-    ctx.ellipse(-radius * 0.45, 0, radius * 0.15, radius * 0.7, -0.2, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.ellipse(radius * 0.45, 0, radius * 0.15, radius * 0.7, 0.2, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  _drawTrail(ctx, radius) {
-    for (const point of this.trail) {
-      const t = clamp(point.z, 0, 2) / 2;
-      const vpX = this.canvas.width / 2;
-      const vpY = this.canvas.height * 0.18;
-      const sx = lerp(point.x, vpX, t * 0.6);
-      const sy = lerp(point.y, vpY + 50, t * 0.5);
-      const r = radius * point.life * 0.6;
-
-      if (r <= 0) continue;
-
-      const alpha = point.life * 0.5;
-      if (this.streakLevel >= 4) {
-        // Rainbow trail for unstoppable
-        const hue = (Date.now() * 0.5 + point.life * 200) % 360;
-        ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${alpha})`;
-      } else {
-        ctx.fillStyle = `rgba(255, ${Math.floor(100 + point.life * 100)}, 0, ${alpha})`;
-      }
-      ctx.beginPath();
-      ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    return this.world3d.projectToScreen(this.mesh.position);
   }
 }
