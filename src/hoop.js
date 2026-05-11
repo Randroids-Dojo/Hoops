@@ -282,9 +282,10 @@ export class Hoop {
   }
 
   setMovement(speed, amplitude) {
-    // Original units were "phase rad/s" and "pixels". Map amplitude px → meters.
-    this.moveSpeed = speed;
-    this.moveAmplitude = amplitude * 0.02; // 80px ≈ 1.6m sway
+    // `amplitude` is in legacy 2D pixel units (from utils.STAGE_DEFS) — convert
+    // to world meters here so the rest of the 3D code is unit-clean.
+    this.moveSpeed = speed;            // rad/s
+    this.moveAmplitude = amplitude * 0.02;
   }
 
   setFireIntensity(intensity) {
@@ -296,15 +297,17 @@ export class Hoop {
     this._netTime = 0;
   }
 
-  // Property accessors used by HUD/particles for screen positioning.
-  get x() {
-    const p = this.world3d.projectToScreen(new THREE.Vector3(this.rimCenter.x + this.offsetX, this.rimCenter.y, this.rimCenter.z));
-    return p.x;
+  // Project the rim center to screen space — cached helper used by particle
+  // emitters that want a 2D rim position. The single getter avoids two
+  // independent projections when the caller reads both x and y.
+  getScreenPos() {
+    return this.world3d.projectToScreen(
+      new THREE.Vector3(this.rimCenter.x + this.offsetX, this.rimCenter.y, this.rimCenter.z),
+    );
   }
-  get y() {
-    const p = this.world3d.projectToScreen(new THREE.Vector3(this.rimCenter.x + this.offsetX, this.rimCenter.y, this.rimCenter.z));
-    return p.y;
-  }
+
+  get x() { return this.getScreenPos().x; }
+  get y() { return this.getScreenPos().y; }
 
   update(dt, balls = null) {
     // Hoop oscillation
@@ -521,11 +524,17 @@ export class Hoop {
     const dz = p.z - cz;
     const horiz = Math.sqrt(dx * dx + dz * dz);
 
+    // Mark rim contact only — backboard touches are tracked separately so
+    // bank shots are still recognised as 'score' (not downgraded swishes
+    // mid-air, and not promoted from 'miss' by a stray board kiss).
     if ((performance.now() / 1000 - ball.lastRimContactTime) < 0.25) {
       ball.rimHit = true;
     }
 
-    const inCylinder = horiz < this.rimRadius * 0.95;
+    // The scoring cylinder is the rim's actual clear opening, not the rim
+    // radius — a ball that's still grazing the iron shouldn't count.
+    const clearRadius = this.rimRadius - COURT.rimTube - COURT.ballRadius;
+    const inCylinder = horiz < clearRadius + 0.01;
     const above = p.y > cy + COURT.ballRadius * 0.5;
     const below = p.y < cy - COURT.ballRadius * 0.4;
     const descending = ball.body.velocity.y < 0;

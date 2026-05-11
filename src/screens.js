@@ -171,15 +171,25 @@ export class Screens {
     const h = canvas.height;
     const btnW = Math.min(w * 0.55, 220);
     const btnH = 48;
-    return { x: w / 2 - btnW / 2, y: h * 0.76, w: btnW, h: btnH };
+    // Make sure the title link below still fits inside the canvas — clamp
+    // the restart Y up if the canvas is unusually short.
+    const titleLinkH = 30;
+    const gap = 10;
+    const bottomPad = 12;
+    const y = Math.min(h * 0.76, h - (btnH + gap + titleLinkH + bottomPad));
+    return { x: w / 2 - btnW / 2, y, w: btnW, h: btnH };
   }
 
   getTitleLinkRect(canvas) {
     const w = canvas.width;
-    const h = canvas.height;
     const btnW = Math.min(w * 0.4, 160);
     const btnH = 30;
-    return { x: w / 2 - btnW / 2, y: h * 0.86, w: btnW, h: btnH };
+    // Anchor below the restart button so the two never overlap regardless
+    // of canvas height.
+    const restart = this.getRestartButtonRect(canvas);
+    const gap = 10;
+    const y = Math.min(restart.y + restart.h + gap, canvas.height - btnH - 12);
+    return { x: w / 2 - btnW / 2, y, w: btnW, h: btnH };
   }
 
   // --- Render methods ---

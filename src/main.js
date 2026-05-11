@@ -7,6 +7,9 @@ import { initUpdateBanner } from './updateBanner.js';
 
 const canvas3d = document.getElementById('gameCanvas3d');
 const canvas = document.getElementById('gameCanvas');
+if (!canvas3d || !canvas) {
+  throw new Error('Hoops: missing required <canvas> element(s). Expected #gameCanvas3d and #gameCanvas.');
+}
 const ctx = canvas.getContext('2d');
 
 function resize() {

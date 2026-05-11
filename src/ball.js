@@ -3,18 +3,25 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COURT, GROUP, makeBasketballTexture, makeBasketballBumpMap } from './world3d.js';
-import { clamp } from './utils.js';
+import { clamp, MIN_THROW_SPEED, MAX_THROW_SPEED } from './utils.js';
 
-// Tunable launch mapping. Input.power arrives in [300, 1800] after clamping.
-// Map to a realistic launch speed in m/s.
-const MIN_SPEED_MS = 6.5;
-const MAX_SPEED_MS = 11.5;
+// Tunable launch mapping. The shot's power (already clamped to the
+// [MIN_THROW_SPEED, MAX_THROW_SPEED] range by the game) is mapped to a
+// realistic basketball release speed in m/s.
+export const MIN_SPEED_MS = 6.5;
+export const MAX_SPEED_MS = 11.5;
 const LAUNCH_PITCH = 55 * Math.PI / 180; // ~55° arc — classic free-throw angle
+const POWER_RANGE = MAX_THROW_SPEED - MIN_THROW_SPEED;
+
+// Power-fraction in [0,1] for a given power value in [MIN_THROW_SPEED, MAX_THROW_SPEED].
+function powerFrac(power) {
+  return clamp((power - MIN_THROW_SPEED) / POWER_RANGE, 0, 1);
+}
 
 // Shared by ball.throwBall() and the predictive-arc preview so they always
 // compute the same launch vector from the same drag input.
 export function launchVector(power, lateralAngle) {
-  const t = clamp((power - 300) / 1500, 0, 1);
+  const t = powerFrac(power);
   const speed = MIN_SPEED_MS + (MAX_SPEED_MS - MIN_SPEED_MS) * t;
   const yaw = clamp(lateralAngle, -1, 1) * 0.18;
   const horiz = speed * Math.cos(LAUNCH_PITCH);
@@ -27,14 +34,23 @@ export function launchVector(power, lateralAngle) {
   };
 }
 
+// Procedural textures are identical across the pool — generate once and
+// share them so every Ball doesn't burn its own canvas/GPU memory.
+let SHARED_BALL_TEX = null;
+let SHARED_BALL_BUMP = null;
+function getSharedBallTextures() {
+  if (!SHARED_BALL_TEX) SHARED_BALL_TEX = makeBasketballTexture();
+  if (!SHARED_BALL_BUMP) SHARED_BALL_BUMP = makeBasketballBumpMap();
+  return { tex: SHARED_BALL_TEX, bump: SHARED_BALL_BUMP };
+}
+
 export class Ball {
   constructor(world3d) {
     this.world3d = world3d;
     this.streakLevel = 0;
 
     // ── Visual mesh ────────────────────────────────────────────────────
-    const tex = makeBasketballTexture();
-    const bump = makeBasketballBumpMap();
+    const { tex, bump } = getSharedBallTextures();
     const mat = new THREE.MeshStandardMaterial({
       map: tex,
       bumpMap: bump,
@@ -90,10 +106,12 @@ export class Ball {
     this.rimHit = false;   // touched the rim/backboard
     this.visible = true;
     this.flightTime = 0;
-    this.hasContacted = false;       // has touched anything since throw
-    this.settleTimer = 0;            // time spent settled
-    this.lastRimContactTime = -10;   // for swish detection
-    this.sensorEntered = false;      // hoop scoring sensor state
+    this.hasContacted = false;            // has touched anything since throw
+    this.settleTimer = 0;                 // time spent settled
+    this.lastRimContactTime = -10;        // for swish detection — rim only
+    this.lastBackboardContactTime = -10;  // tracked separately so banks
+                                          // don't mark rimHit
+    this.sensorEntered = false;           // hoop scoring sensor state
     this.reportedRim = false;
 
     this.reset();
@@ -134,6 +152,7 @@ export class Ball {
     this.sensorEntered = false;
     this.reportedRim = false;
     this.lastRimContactTime = -10;
+    this.lastBackboardContactTime = -10;
     this.mesh.visible = true;
   }
 
@@ -153,7 +172,7 @@ export class Ball {
     this.body.collisionFilterMask = 0;
   }
 
-  // power: drag pixels/sec (already clamped to [MIN_THROW_SPEED, MAX_THROW_SPEED])
+  // power: launch power in [MIN_THROW_SPEED, MAX_THROW_SPEED]
   // lateralAngle: -1..1 horizontal aim
   throwBall(power, lateralAngle) {
     if (this.active) return;
@@ -166,9 +185,11 @@ export class Ball {
     this.settleTimer = 0;
     this.sensorEntered = false;
     this.reportedRim = false;
+    this.lastRimContactTime = -10;       // make sure a recycled ball doesn't
+    this.lastBackboardContactTime = -10; // inherit a stale contact stamp
 
     const v = launchVector(power, lateralAngle);
-    const t = clamp((power - 300) / 1500, 0, 1);
+    const t = powerFrac(power);
     const yaw = clamp(lateralAngle, -1, 1) * 0.18;
 
     this.body.wakeUp();

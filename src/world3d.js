@@ -210,9 +210,19 @@ export class World3D {
     this.renderer.render(this.scene, this.camera);
   }
 
+  // Read the canvas' own CSS-pixel size — keeps the 3D camera and the 2D
+  // overlay projection consistent even if the canvas is inset, padded, or
+  // CSS-scaled relative to the window.
+  _canvasSize() {
+    const c = this.renderer.domElement;
+    return {
+      w: c.clientWidth || window.innerWidth,
+      h: c.clientHeight || window.innerHeight,
+    };
+  }
+
   handleResize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { w, h } = this._canvasSize();
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / Math.max(h, 1);
     this.camera.updateProjectionMatrix();
@@ -221,8 +231,7 @@ export class World3D {
   // Project a 3D world position to 2D screen pixels (for HUD overlay).
   projectToScreen(vec3) {
     const v = vec3.clone().project(this.camera);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { w, h } = this._canvasSize();
     return {
       x: (v.x * 0.5 + 0.5) * w,
       y: (-v.y * 0.5 + 0.5) * h,

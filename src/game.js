@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { COLORS, clamp, MIN_THROW_SPEED, MAX_THROW_SPEED } from './utils.js';
-import { Ball, launchVector } from './ball.js';
+import { Ball, launchVector, MIN_SPEED_MS, MAX_SPEED_MS } from './ball.js';
 import { Hoop } from './hoop.js';
 import { Lane } from './lane.js';
 import { COURT } from './world3d.js';
@@ -76,6 +76,9 @@ export class Game {
 
   // Tag-along listener: every ball-vs-hardware/floor contact stamps the ball
   // so the game loop can promote the next ball without waiting for a timer.
+  // Rim and backboard contacts are stamped separately — banks shouldn't be
+  // promoted from 'swish' to 'score' by a board touch, and bare-rim grazes
+  // shouldn't be muted by a backboard timestamp.
   _installContactListener() {
     this.world3d.physicsWorld.addEventListener('beginContact', (e) => {
       const a = e.bodyA, b = e.bodyB;
@@ -85,31 +88,44 @@ export class Game {
       const ball = ballBody.userData.ball;
       if (!ball || !ball.active) return;
       ball.hasContacted = true;
-      if (otherBody.userData?.isRim || otherBody.userData?.isBackboard) {
-        ball.lastRimContactTime = performance.now() / 1000;
-      }
+      const now = performance.now() / 1000;
+      if (otherBody.userData?.isRim) ball.lastRimContactTime = now;
+      else if (otherBody.userData?.isBackboard) ball.lastBackboardContactTime = now;
     });
   }
 
   _promoteNextBall() {
-    // Round-robin to the next ball in the pool, preferring one that's
-    // retired (hidden). Retire any thrown ball we're about to steal.
+    // Round-robin to the next ball in the pool. First pass: prefer a fully
+    // retired/hidden slot so we don't teleport an in-flight ball back to
+    // spawn mid-bounce. Second pass: any inactive slot (visible-but-settled
+    // is fine, the user will see it just sit). Last resort: force-recycle
+    // the oldest live ball.
     const n = this.balls.length;
+    const streak = this.scoring.getStreakLevel();
+    for (let i = 1; i <= n; i++) {
+      const idx = (this.activeBallIdx + i) % n;
+      const b = this.balls[idx];
+      if (!b.visible) {
+        this.activeBallIdx = idx;
+        b.placeAtSpawn();
+        b.setStreakLevel(streak);
+        return;
+      }
+    }
     for (let i = 1; i <= n; i++) {
       const idx = (this.activeBallIdx + i) % n;
       const b = this.balls[idx];
       if (!b.active) {
         this.activeBallIdx = idx;
         b.placeAtSpawn();
-        b.streakLevel = this.scoring.getStreakLevel();
+        b.setStreakLevel(streak);
         return;
       }
     }
-    // All balls in flight — force-recycle the oldest (next in rotation).
     const idx = (this.activeBallIdx + 1) % n;
     this.balls[idx].retire();
     this.balls[idx].placeAtSpawn();
-    this.balls[idx].streakLevel = this.scoring.getStreakLevel();
+    this.balls[idx].setStreakLevel(streak);
     this.activeBallIdx = idx;
   }
 
@@ -120,8 +136,8 @@ export class Game {
         // not from the drag distance. Drag only controls lateral aim.
         const norm = this._currentMeterPower();
         const launchPower = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
+        this.activeBall.setStreakLevel(this.scoring.getStreakLevel());
         this.activeBall.throwBall(launchPower, lateralAngle);
-        this.activeBall.streakLevel = this.scoring.getStreakLevel();
         this.audio.playThrow();
       }
     };
@@ -192,8 +208,8 @@ export class Game {
 
   _handleGameOverTap(x, y) {
     const restartBtn = this.screens.getRestartButtonRect(this.canvas);
+    // startGame() already plays a click, so we don't double up here.
     if (this.screens._hitTest(x, y, restartBtn)) {
-      this.audio.playClick();
       this.startGame();
       return;
     }
@@ -480,7 +496,7 @@ export class Game {
       const collision = this.hoop.checkCollision(ball);
       if (collision === 'swish' || collision === 'score') {
         this._onScore(collision === 'swish', ball);
-      } else if (collision === 'rim' || collision === 'rim_score_pending') {
+      } else if (collision === 'rim') {
         this.audio.playRimHit();
       }
       if (ball.missed) this._onMiss(ball);
@@ -643,8 +659,10 @@ export class Game {
     }
   }
 
-  // Solve for the launch speed that puts the ball in the rim at a 55° arc, then
-  // convert to a [0..1] power-meter fraction. Tracks moving hoops live.
+  // Solve for the launch speed that puts the ball in the rim at a 55° arc,
+  // then convert to a [0..1] power-meter fraction. Tracks moving hoops live.
+  // Speed-range constants come from ball.js so the meter and the actual
+  // launch always agree.
   _perfectShotNorm() {
     const spawn = COURT.ballSpawn;
     const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
@@ -654,16 +672,16 @@ export class Game {
     const denom = 2 * Math.cos(theta) ** 2 * (R * Math.tan(theta) - h);
     if (denom <= 0) return 0.5;
     const v0 = Math.sqrt((9.82 * R * R) / denom);
-    // Same mapping as launchVector: speed ∈ [6.5, 11.5] m/s → power norm ∈ [0, 1]
-    return clamp((v0 - 6.5) / 5, 0.05, 0.95);
+    return clamp((v0 - MIN_SPEED_MS) / (MAX_SPEED_MS - MIN_SPEED_MS), 0.05, 0.95);
   }
 
-  // Predict the shot analytically (exact ballistic solution) for the current
-  // meter power and the drag's lateral direction. The arc + reticle update
-  // in real time as the meter sweeps so the player sees exactly where the
-  // shot would land at any release moment.
+  // Predict the shot analytically (exact ballistic solution) at the PERFECT
+  // launch power for the current aim. The arc + reticle are a pure aim
+  // indicator: they don't move with the meter. Player aims so the reticle
+  // is on the rim, then times release to hit PERFECT on the meter — both
+  // skills are independent, both need to land for a swish.
   _predictShot(delta) {
-    const norm = this._currentMeterPower();
+    const norm = this._perfectShotNorm();
     const power = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
     const lateralAngle = delta.dx / Math.max(Math.abs(delta.dy), 1);
     const v = launchVector(power, lateralAngle);
