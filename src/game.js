@@ -23,9 +23,10 @@ const BALL_POOL_SIZE = 5;
 // final power by ±0.5 of the full range. ±0.25 of range feels like a real
 // "timing adjustment" without overpowering the drag aim.
 const METER_ADJUST_SCALE = 0.5;
-// The meter's "PERFECT" mark sits at the center of the bar — releasing
-// there means no adjustment to the drag-aim.
-const METER_PERFECT_NORM = 0.5;
+// The meter's "PERFECT" mark sits high on the bar — releasing there means
+// no adjustment to the drag-aim. The launch formula references this same
+// constant so moving the mark doesn't change the neutral-power behavior.
+const METER_PERFECT_NORM = 0.7;
 
 export class Game {
   constructor(canvas, ctx, world3d) {
@@ -152,7 +153,7 @@ export class Game {
         // delivers. Over-aim + early release can compensate, and vice
         // versa — two dimensions the player feels out.
         const meterNorm = this._currentMeterPower();
-        const adjust = (meterNorm - 0.5) * METER_ADJUST_SCALE;
+        const adjust = (meterNorm - METER_PERFECT_NORM) * METER_ADJUST_SCALE;
         const finalNorm = clamp(dragPowerNorm + adjust, 0, 1);
         const launchPower = MIN_THROW_SPEED + finalNorm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
         this.activeBall.setStreakLevel(this.scoring.getStreakLevel());
