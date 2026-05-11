@@ -166,6 +166,32 @@ export class Screens {
     return { x: w / 2 - 60, y: h * 0.82, w: 120, h: 30 };
   }
 
+  getRestartButtonRect(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const btnW = Math.min(w * 0.55, 220);
+    const btnH = 48;
+    // Make sure the title link below still fits inside the canvas — clamp
+    // the restart Y up if the canvas is unusually short.
+    const titleLinkH = 30;
+    const gap = 10;
+    const bottomPad = 12;
+    const y = Math.min(h * 0.76, h - (btnH + gap + titleLinkH + bottomPad));
+    return { x: w / 2 - btnW / 2, y, w: btnW, h: btnH };
+  }
+
+  getTitleLinkRect(canvas) {
+    const w = canvas.width;
+    const btnW = Math.min(w * 0.4, 160);
+    const btnH = 30;
+    // Anchor below the restart button so the two never overlap regardless
+    // of canvas height.
+    const restart = this.getRestartButtonRect(canvas);
+    const gap = 10;
+    const y = Math.min(restart.y + restart.h + gap, canvas.height - btnH - 12);
+    return { x: w / 2 - btnW / 2, y, w: btnW, h: btnH };
+  }
+
   // --- Render methods ---
 
   renderTitle(ctx, canvas, bestScore) {
@@ -192,29 +218,6 @@ export class Screens {
     ctx.fillStyle = COLORS.secondary;
     ctx.font = `${Math.min(w * 0.035, 20)}px monospace`;
     ctx.fillText('ARCADE BASKETBALL', w / 2, titleY + 40);
-
-    // Bouncing ball icon
-    const ballY = h * 0.48 + Math.abs(Math.sin(this.titleBouncePhase)) * 20;
-    ctx.fillStyle = COLORS.basketball;
-    ctx.beginPath();
-    ctx.arc(w / 2, ballY, 18, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Ball seams
-    ctx.strokeStyle = COLORS.seamBlack;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.ellipse(w / 2, ballY, 18, 3, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(w / 2, ballY, 3, 18, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Ball shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath();
-    ctx.ellipse(w / 2, h * 0.48 + 30, 14, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
 
     // Tap to play prompt (pulsing)
     const promptAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
@@ -310,19 +313,28 @@ export class Screens {
       ctx.fillText(`GLOBAL RANK: #${globalRank}`, w / 2, h * 0.67);
     }
 
-    // Restart prompt
-    const promptAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
-    ctx.globalAlpha = promptAlpha;
-    ctx.fillStyle = COLORS.white;
-    ctx.font = 'bold 20px monospace';
-    const isMobile = 'ontouchstart' in window;
-    ctx.fillText(isMobile ? 'TAP TO RESTART' : 'CLICK TO RESTART', w / 2, h * 0.78);
-    ctx.globalAlpha = 1;
+    // RESTART button
+    const btn = this.getRestartButtonRect(canvas);
+    const pulse = 0.85 + Math.sin(Date.now() * 0.004) * 0.15;
+    ctx.fillStyle = `rgba(0, 255, 65, ${0.18 * pulse})`;
+    ctx.strokeStyle = COLORS.scoreGreen;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = COLORS.scoreGreen;
+    ctx.shadowBlur = 14 * pulse;
+    this._roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // View leaderboard hint
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillStyle = COLORS.scoreGreen;
+    ctx.font = 'bold 22px monospace';
+    ctx.fillText('RESTART', w / 2, btn.y + btn.h / 2 + 8);
+
+    // Back-to-title link
+    const link = this.getTitleLinkRect(canvas);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.font = '14px monospace';
-    ctx.fillText('Press L to view leaderboard', w / 2, h * 0.88);
+    ctx.fillText('BACK TO TITLE', w / 2, link.y + link.h / 2 + 5);
 
     ctx.restore();
   }
