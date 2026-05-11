@@ -14,6 +14,7 @@ import { Scoring } from './scoring.js';
 import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
+import { settings } from './settings.js';
 
 const BALL_POOL_SIZE = 5;
 
@@ -164,7 +165,9 @@ export class Game {
       } else if (this.state === 'gameOver') {
         this._handleGameOverTap(x, y);
       } else if (this.state === 'paused') {
-        this.togglePause();
+        this._handlePausedTap(x, y);
+      } else if (this.state === 'settings') {
+        this._handleSettingsTap(x, y);
       } else if (this.state === 'nameEntry') {
         this._handleNameEntryTap(x, y);
       } else if (this.state === 'leaderboard') {
@@ -178,6 +181,8 @@ export class Game {
       if (e.key === 'Escape') {
         if (this.state === 'playing' || this.state === 'paused') {
           this.togglePause();
+        } else if (this.state === 'settings') {
+          this._exitSettings();
         } else if (this.state === 'leaderboard') {
           this._exitLeaderboard();
         } else if (this.state === 'nameEntry') {
@@ -189,7 +194,7 @@ export class Game {
         this.audio.toggle();
       }
       if (e.key === 'l' || e.key === 'L') {
-        if (this.state === 'title' || this.state === 'gameOver') {
+        if (this.state === 'title' || this.state === 'gameOver' || this.state === 'paused') {
           this._openLeaderboard();
         }
       }
@@ -344,6 +349,61 @@ export class Game {
     this.state = this.leaderboardReturnState || 'title';
   }
 
+  // --- Pause menu ---
+
+  _handlePausedTap(x, y) {
+    const rects = this.screens.getPauseMenuRects(this.canvas);
+    if (this.screens._hitTest(x, y, rects.resume)) {
+      this.audio.playClick();
+      this.togglePause();
+      return;
+    }
+    if (this.screens._hitTest(x, y, rects.settings)) {
+      this.audio.playClick();
+      this.state = 'settings';
+      return;
+    }
+    if (this.screens._hitTest(x, y, rects.leaderboard)) {
+      this._openLeaderboard();
+      return;
+    }
+    if (this.screens._hitTest(x, y, rects.restart)) {
+      this.startGame();
+      return;
+    }
+    if (this.screens._hitTest(x, y, rects.quit)) {
+      this._quitToTitle();
+      return;
+    }
+  }
+
+  _handleSettingsTap(x, y) {
+    const rects = this.screens.getSettingsRects(this.canvas);
+    if (this.screens._hitTest(x, y, rects.powerSide)) {
+      this.audio.playClick();
+      settings.togglePowerMeterSide();
+      return;
+    }
+    if (this.screens._hitTest(x, y, rects.back)) {
+      this._exitSettings();
+      return;
+    }
+  }
+
+  _exitSettings() {
+    this.audio.playClick();
+    this.state = 'paused';
+  }
+
+  _quitToTitle() {
+    this.audio.playClick();
+    hideFab();
+    this.state = 'title';
+    this.previousState = null;
+    this._resetBallPool();
+    this.particles.clear();
+  }
+
   _handleLeaderboardTap(x, y) {
     // Back button
     const backBtn = this.screens.getLeaderboardBackButtonRect(this.canvas);
@@ -373,7 +433,9 @@ export class Game {
     this.audio.resume();
     this.audio.playClick();
 
+    hideFab();
     this.state = 'playing';
+    this.previousState = null;
     this.scoring.reset();
     this._resetBallPool();
     this.particles.clear();
@@ -454,7 +516,7 @@ export class Game {
       return;
     }
 
-    if (this.state === 'paused') return;
+    if (this.state === 'paused' || this.state === 'settings') return;
 
     if (this.state === 'playing') {
       this._updatePlaying(dt);
@@ -632,12 +694,14 @@ export class Game {
       return;
     }
 
-    if (this.state === 'playing' || this.state === 'paused') {
+    if (this.state === 'playing' || this.state === 'paused' || this.state === 'settings') {
       this.particles.render(ctx);
       this.hud.render(ctx, canvas, this.scoring);
 
       if (this.state === 'paused') {
         this.screens.renderPause(ctx, canvas);
+      } else if (this.state === 'settings') {
+        this.screens.renderSettings(ctx, canvas, settings);
       }
 
       // Power meter is always visible during play — the player times their
@@ -648,7 +712,7 @@ export class Game {
 
       // While dragging: also show the live trajectory arc + landing reticle
       // for the current meter power and aim direction.
-      if (this.input.isDragging() && !this.activeBall.active) {
+      if (this.state === 'playing' && this.input.isDragging() && !this.activeBall.active) {
         this._renderAimArc(ctx);
       }
       return;
@@ -754,7 +818,8 @@ export class Game {
 
     const barH = Math.min(h * 0.5, 360);
     const barW = 22;
-    const barX = w - barW - 26;
+    const onLeft = settings.powerMeterSide === 'left';
+    const barX = onLeft ? 26 : w - barW - 26;
     const barY = (h - barH) / 2;
 
     // Track
@@ -780,19 +845,25 @@ export class Game {
     ctx.strokeRect(barX + 2, zoneTop, barW - 4, zoneH);
     ctx.restore();
 
-    // PERFECT label tick
+    // PERFECT label tick — hangs off the meter's outer edge (away from the
+    // screen edge it sits against), so the label is always readable.
     ctx.save();
     ctx.strokeStyle = COLORS.scoreGreen;
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.lineWidth = 1.5;
     const sweetY = barY + barH - barH * sweet;
     ctx.beginPath();
-    ctx.moveTo(barX - 14, sweetY);
-    ctx.lineTo(barX - 2, sweetY);
+    if (onLeft) {
+      ctx.moveTo(barX + barW + 2, sweetY);
+      ctx.lineTo(barX + barW + 14, sweetY);
+    } else {
+      ctx.moveTo(barX - 14, sweetY);
+      ctx.lineTo(barX - 2, sweetY);
+    }
     ctx.stroke();
     ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText('PERFECT', barX - 16, sweetY + 3);
+    ctx.textAlign = onLeft ? 'left' : 'right';
+    ctx.fillText('PERFECT', onLeft ? barX + barW + 16 : barX - 16, sweetY + 3);
     ctx.restore();
 
     // Live oscillating fill

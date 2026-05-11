@@ -2,6 +2,17 @@
 
 import { COLORS } from './utils.js';
 
+// Pause menu button order (top-to-bottom) and their labels. Keep these in
+// sync — both render and hit-test iterate PAUSE_MENU_KEYS.
+const PAUSE_MENU_KEYS = ['resume', 'settings', 'leaderboard', 'restart', 'quit'];
+const PAUSE_MENU_LABELS = {
+  resume: 'RESUME',
+  settings: 'SETTINGS',
+  leaderboard: 'LEADERBOARD',
+  restart: 'RESTART',
+  quit: 'QUIT',
+};
+
 export class Screens {
   constructor() {
     this.titleBouncePhase = 0;
@@ -624,22 +635,141 @@ export class Screens {
     ctx.restore();
   }
 
+  // --- Pause menu ---
+
+  // Vertical stack of buttons centered on the screen. Order is preserved by
+  // PAUSE_MENU_KEYS so render and hit-test agree.
+  getPauseMenuRects(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const btnW = Math.min(w * 0.6, 260);
+    const btnH = 44;
+    const gap = 12;
+    const totalH = btnH * PAUSE_MENU_KEYS.length + gap * (PAUSE_MENU_KEYS.length - 1);
+    const startY = (h - totalH) / 2 + h * 0.04; // nudge below the "PAUSED" title
+    const rects = {};
+    for (let i = 0; i < PAUSE_MENU_KEYS.length; i++) {
+      const key = PAUSE_MENU_KEYS[i];
+      rects[key] = {
+        x: w / 2 - btnW / 2,
+        y: startY + i * (btnH + gap),
+        w: btnW,
+        h: btnH,
+      };
+    }
+    return rects;
+  }
+
   renderPause(ctx, canvas) {
     const w = canvas.width;
     const h = canvas.height;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, w, h);
 
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = COLORS.primary;
-    ctx.font = `bold ${Math.min(w * 0.1, 60)}px monospace`;
-    ctx.fillText('PAUSED', w / 2, h * 0.45);
+    ctx.shadowColor = COLORS.primary;
+    ctx.shadowBlur = 18;
+    ctx.font = `bold ${Math.min(w * 0.1, 56)}px monospace`;
+    const rects = this.getPauseMenuRects(canvas);
+    const titleY = Math.max(h * 0.18, rects.resume.y - 36);
+    ctx.fillText('PAUSED', w / 2, titleY);
+    ctx.shadowBlur = 0;
+
+    for (const key of PAUSE_MENU_KEYS) {
+      const r = rects[key];
+      const isQuit = key === 'quit';
+      const borderColor = isQuit ? COLORS.red : COLORS.primary;
+      const fillColor = isQuit ? 'rgba(230, 57, 70, 0.10)' : 'rgba(0, 229, 255, 0.12)';
+
+      ctx.fillStyle = fillColor;
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 2;
+      this._roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = borderColor;
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText(PAUSE_MENU_LABELS[key], r.x + r.w / 2, r.y + r.h / 2 + 6);
+    }
+
+    ctx.restore();
+  }
+
+  // --- Settings screen ---
+
+  getSettingsRects(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const btnW = Math.min(w * 0.6, 280);
+    const btnH = 48;
+    const backW = Math.min(w * 0.4, 160);
+    const backH = 40;
+    return {
+      powerSide: { x: w / 2 - btnW / 2, y: h * 0.42, w: btnW, h: btnH },
+      back: { x: w / 2 - backW / 2, y: h * 0.72, w: backW, h: backH },
+    };
+  }
+
+  renderSettings(ctx, canvas, settings) {
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.save();
+    ctx.textAlign = 'center';
+
+    // Title
+    ctx.fillStyle = COLORS.primary;
+    ctx.shadowColor = COLORS.primary;
+    ctx.shadowBlur = 18;
+    ctx.font = `bold ${Math.min(w * 0.08, 44)}px monospace`;
+    ctx.fillText('SETTINGS', w / 2, h * 0.22);
+    ctx.shadowBlur = 0;
+
+    const rects = this.getSettingsRects(canvas);
+
+    // Section label
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '13px monospace';
+    ctx.fillText('POWER METER SIDE', w / 2, rects.powerSide.y - 14);
+
+    // Power meter side toggle — shows current value, tapping flips it.
+    const side = settings.powerMeterSide === 'left' ? 'LEFT' : 'RIGHT';
+    const r = rects.powerSide;
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 2;
+    this._roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+    ctx.fill();
+    ctx.stroke();
 
     ctx.fillStyle = COLORS.white;
-    ctx.font = '18px monospace';
-    ctx.fillText('Press ESC or tap to resume', w / 2, h * 0.55);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText(side, w / 2, r.y + r.h / 2 + 7);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '11px monospace';
+    ctx.fillText('TAP TO TOGGLE', w / 2, r.y + r.h + 16);
+
+    // Back button
+    const back = rects.back;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 2;
+    this._roundRect(ctx, back.x, back.y, back.w, back.h, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.primary;
+    ctx.font = 'bold 15px monospace';
+    ctx.fillText('BACK', w / 2, back.y + back.h / 2 + 5);
+
     ctx.restore();
   }
 
