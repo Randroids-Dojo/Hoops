@@ -8,7 +8,8 @@ import { COURT, GROUP } from './world3d.js';
 const RIM_SEGMENTS = 22; // sphere segments forming the rim's collision torus
 const NET_STRANDS = 14;
 const NET_RINGS = 6;
-const NET_LENGTH = 0.42;
+const NET_LENGTH = 0.55;     // hangs further below the rim for a clearer cone
+const NET_BOTTOM_FACTOR = 0.5; // bottom radius / top radius (cone pinch)
 
 export class Hoop {
   constructor(world3d) {
@@ -139,25 +140,28 @@ export class Hoop {
       const a = (s / NET_STRANDS) * Math.PI * 2;
       for (let r = 0; r <= NET_RINGS; r++) {
         const t = r / NET_RINGS;
-        const radius = this.rimRadius * (1 - t * 0.55);
+        const radius = this.rimRadius * (1 - t * (1 - NET_BOTTOM_FACTOR));
         const x = Math.cos(a) * radius;
         const y = -t * NET_LENGTH;
         const z = Math.sin(a) * radius;
         positions.push(x, y, z);
       }
     }
+
+    // Minimal visible mesh — 14 vertical strands plus three horizontal hoops
+    // (mid-net and the bottom). Diagonals are used by the cloth sim for
+    // shear stability but are NOT drawn, so the cone reads cleanly on small
+    // displays instead of blurring into a tangle of overlapping 1px lines.
     for (let s = 0; s < NET_STRANDS; s++) {
       const sNext = (s + 1) % NET_STRANDS;
       for (let r = 0; r < NET_RINGS; r++) {
-        // vertical strand
-        indices.push(idx(s, r), idx(s, r + 1));
-        // diagonal cross to next strand
-        indices.push(idx(s, r), idx(sNext, r + 1));
-        if (r > 0) {
-          // horizontal ring
-          indices.push(idx(s, r), idx(sNext, r));
-        }
+        indices.push(idx(s, r), idx(s, r + 1));        // vertical strand
       }
+      // Horizontal hoops at r=2, r=4, and the bottom (r=6) — three thin rings
+      // visible against the dark backdrop.
+      indices.push(idx(s, 2), idx(sNext, 2));
+      indices.push(idx(s, 4), idx(sNext, 4));
+      indices.push(idx(s, NET_RINGS), idx(sNext, NET_RINGS));
     }
 
     const geo = new THREE.BufferGeometry();
