@@ -171,7 +171,10 @@ export class Hoop {
     // ── Cloth simulation data ───────────────────────────────────────
     // One Verlet particle per net vertex. The top ring (r=0) is pinned
     // to the rim; the rest is free and constrained to its neighbors.
+    // We also keep the design positions so the cloth can softly return to
+    // its hanging-cone pose whenever no ball is interacting with it.
     this._netParticles = [];
+    this._netBase = new Float32Array(positions);
     for (let i = 0; i < positions.length; i += 3) {
       const x = positions[i], y = positions[i + 1], z = positions[i + 2];
       const r = Math.floor((i / 3) % (NET_RINGS + 1));
@@ -205,6 +208,13 @@ export class Hoop {
     net.position.copy(this.rimCenter);
     this.assembly.add(net);
     this.net = net;
+
+    // Pre-warm the cloth so the very first rendered frame already shows the
+    // net at its hanging-cone equilibrium.
+    for (let i = 0; i < 60; i++) this._simulateNet(1 / 60, null);
+    for (const p of this._netParticles) {
+      p.px = p.x; p.py = p.y; p.pz = p.z;
+    }
   }
 
   _buildPhysics() {
@@ -322,9 +332,12 @@ export class Hoop {
   }
 
   // Verlet cloth simulation. The top ring is pinned to the rim; the rest is
-  // a free fabric that flexes when a ball pushes through.
+  // a free fabric that flexes when a ball pushes through. When no ball is
+  // interacting, particles are pinned to their design positions (with a
+  // little ambient sway) — this avoids the cloth ever drifting away from
+  // its clean hanging-cone shape between throws.
   _simulateNet(dt, balls) {
-    const damping = 0.94;
+    const damping = 0.85;
     const gravity = -3.5;
     const t = this._netTime;
     const ballR = COURT.ballRadius;
@@ -369,6 +382,45 @@ export class Hoop {
         if (dx * dx + dy * dy + dz * dz > 0.9 * 0.9) continue;
         nearBalls.push({ x: dx, y: dy, z: dz });
       }
+    }
+
+    // Track "active" frames — frames since the last ball interaction. While
+    // a ball is near or just left, we run the full cloth sim. Once the cloth
+    // has had time to recover, we pin particles to their design positions
+    // so the net always reads as a clean hanging cone at rest.
+    if (nearBalls.length > 0) this._activeFrames = 90;        // ~1.5s of physics
+    else this._activeFrames = Math.max(0, (this._activeFrames || 0) - 1);
+
+    if (this._activeFrames === 0) {
+      // Resting net: snap to design positions plus a tiny ambient sway.
+      const base = this._netBase;
+      for (let i = 0; i < this._netParticles.length; i++) {
+        const p = this._netParticles[i];
+        if (p.pinned) {
+          p.x = base[i * 3];
+          p.y = base[i * 3 + 1];
+          p.z = base[i * 3 + 2];
+          p.px = p.x; p.py = p.y; p.pz = p.z;
+          continue;
+        }
+        const s = Math.floor(i / ringWidth);
+        const r = i % ringWidth;
+        const sway = (r / NET_RINGS) * 0.006;
+        p.x = base[i * 3]     + Math.sin(t * 1.7 + s) * sway;
+        p.y = base[i * 3 + 1] + Math.cos(t * 1.5 + s) * sway * 0.2;
+        p.z = base[i * 3 + 2] + Math.cos(t * 1.5 + s) * sway;
+        p.px = p.x; p.py = p.y; p.pz = p.z;
+      }
+      // Push to geometry and exit early — no physics needed.
+      const arr = this.net.geometry.attributes.position.array;
+      for (let i = 0; i < this._netParticles.length; i++) {
+        const p = this._netParticles[i];
+        arr[i * 3 + 0] = p.x;
+        arr[i * 3 + 1] = p.y;
+        arr[i * 3 + 2] = p.z;
+      }
+      this.net.geometry.attributes.position.needsUpdate = true;
+      return;
     }
 
     // Constraint relaxation + ball collision, several Gauss-Seidel passes.
@@ -418,16 +470,17 @@ export class Hoop {
       if (p.y > 0) p.y = 0;
     }
 
-    // Gentle ambient sway when no ball is interacting — keeps the net alive.
-    if (nearBalls.length === 0) {
-      for (let s = 0; s < NET_STRANDS; s++) {
-        for (let r = 1; r <= NET_RINGS; r++) {
-          const p = this._netParticles[s * ringWidth + r];
-          const f = (r / NET_RINGS) * 0.0006;
-          p.x += Math.sin(t * 1.7 + s) * f;
-          p.z += Math.cos(t * 1.5 + s) * f;
-        }
-      }
+    // While the cloth is "active" (recovering from a ball pass), pull it
+    // softly toward the design pose so it settles smoothly back to rest.
+    const recoveryStrength = nearBalls.length > 0 ? 0.04 : 0.18;
+    const base = this._netBase;
+    for (let i = 0; i < this._netParticles.length; i++) {
+      const p = this._netParticles[i];
+      if (p.pinned) continue;
+      const bi = i * 3;
+      p.x += (base[bi]     - p.x) * recoveryStrength;
+      p.y += (base[bi + 1] - p.y) * recoveryStrength;
+      p.z += (base[bi + 2] - p.z) * recoveryStrength;
     }
 
     // Score-burst ripple kept for visual punch.
