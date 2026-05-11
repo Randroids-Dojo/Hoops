@@ -15,6 +15,8 @@ import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 
+const BALL_POOL_SIZE = 5;
+
 export class Game {
   constructor(canvas, ctx, world3d) {
     this.canvas = canvas;
@@ -24,8 +26,18 @@ export class Game {
     this.state = 'title';
     this.lastTime = 0;
 
-    // Initialize subsystems
-    this.ball = new Ball(world3d);
+    // Ball pool — a fresh ball is spawned as soon as the previous one hits
+    // hardware or the floor, so the player never waits for a reset.
+    this.balls = [];
+    for (let i = 0; i < BALL_POOL_SIZE; i++) {
+      this.balls.push(new Ball(world3d));
+    }
+    this.activeBallIdx = 0;
+    this.balls[0].placeAtSpawn();
+    for (let i = 1; i < this.balls.length; i++) this.balls[i].retire();
+
+    this._installContactListener();
+
     this.hoop = new Hoop(world3d);
     this.lane = new Lane();
     this.hud = new HUD();
@@ -36,7 +48,6 @@ export class Game {
     this.screens = new Screens();
     this.leaderboard = new Leaderboard();
 
-    this.ballResetTimer = 0;
     this.edgePulseTimer = 0;
     this.previousState = null; // for pause
     this.leaderboardReturnState = 'title'; // where to go back from leaderboard
@@ -48,12 +59,55 @@ export class Game {
     initFeedbackFab();
   }
 
+  get activeBall() {
+    return this.balls[this.activeBallIdx];
+  }
+
+  // Tag-along listener: every ball-vs-hardware/floor contact stamps the ball
+  // so the game loop can promote the next ball without waiting for a timer.
+  _installContactListener() {
+    this.world3d.physicsWorld.addEventListener('beginContact', (e) => {
+      const a = e.bodyA, b = e.bodyB;
+      const ballBody = a.userData?.isBall ? a : (b.userData?.isBall ? b : null);
+      const otherBody = ballBody === a ? b : a;
+      if (!ballBody || !otherBody) return;
+      const ball = ballBody.userData.ball;
+      if (!ball || !ball.active) return;
+      ball.hasContacted = true;
+      if (otherBody.userData?.isRim || otherBody.userData?.isBackboard) {
+        ball.lastRimContactTime = performance.now() / 1000;
+      }
+    });
+  }
+
+  _promoteNextBall() {
+    // Round-robin to the next ball in the pool, preferring one that's
+    // retired (hidden). Retire any thrown ball we're about to steal.
+    const n = this.balls.length;
+    for (let i = 1; i <= n; i++) {
+      const idx = (this.activeBallIdx + i) % n;
+      const b = this.balls[idx];
+      if (!b.active) {
+        this.activeBallIdx = idx;
+        b.placeAtSpawn();
+        b.streakLevel = this.scoring.getStreakLevel();
+        return;
+      }
+    }
+    // All balls in flight — force-recycle the oldest (next in rotation).
+    const idx = (this.activeBallIdx + 1) % n;
+    this.balls[idx].retire();
+    this.balls[idx].placeAtSpawn();
+    this.balls[idx].streakLevel = this.scoring.getStreakLevel();
+    this.activeBallIdx = idx;
+  }
+
   _setupInput() {
     this.input.onThrow = (power, lateralAngle) => {
-      if (this.state === 'playing' && !this.ball.active) {
+      if (this.state === 'playing' && !this.activeBall.active) {
         const clampedPower = clamp(power, MIN_THROW_SPEED, MAX_THROW_SPEED);
-        this.ball.throwBall(clampedPower, lateralAngle);
-        this.ball.streakLevel = this.scoring.getStreakLevel();
+        this.activeBall.throwBall(clampedPower, lateralAngle);
+        this.activeBall.streakLevel = this.scoring.getStreakLevel();
         this.audio.playThrow();
       }
     };
@@ -262,7 +316,7 @@ export class Game {
 
     this.state = 'playing';
     this.scoring.reset();
-    this.ball.reset();
+    this._resetBallPool();
     this.particles.clear();
     this.hud.notifications = [];
     this.globalRank = null;
@@ -272,10 +326,16 @@ export class Game {
     this.hoop.setFireIntensity(0);
   }
 
+  _resetBallPool() {
+    for (const b of this.balls) b.retire();
+    this.activeBallIdx = 0;
+    this.activeBall.placeAtSpawn();
+  }
+
   returnToTitle() {
     this.audio.playClick();
     this.state = 'title';
-    this.ball.reset();
+    this._resetBallPool();
     this.particles.clear();
   }
 
@@ -348,7 +408,7 @@ export class Game {
     this.world3d.step(dt);
     this.lane.update(dt);
     this.hoop.update(dt);
-    this.ball.update(dt);
+    for (const b of this.balls) b.update(dt);
 
     // Fire particles on hoop when streak active
     const streakLevel = this.scoring.getStreakLevel();
@@ -378,31 +438,29 @@ export class Game {
       this.edgePulseTimer = 0;
     }
 
-    // Check ball collision with hoop
-    if (this.ball.active) {
-      const collision = this.hoop.checkCollision(this.ball);
+    // Scoring + miss detection across every in-flight ball
+    for (const ball of this.balls) {
+      // Retire settled balls (post-contact, at rest) so the pool can recycle.
+      if (ball.isSettled() && ball !== this.activeBall) {
+        ball.retire();
+        continue;
+      }
+      if (!ball.active) continue;
 
+      const collision = this.hoop.checkCollision(ball);
       if (collision === 'swish' || collision === 'score') {
-        this._onScore(collision === 'swish');
+        this._onScore(collision === 'swish', ball);
       } else if (collision === 'rim' || collision === 'rim_score_pending') {
         this.audio.playRimHit();
       }
-
-      // Ball missed (went off screen or too far)
-      if (this.ball.missed) {
-        this._onMiss();
-      }
+      if (ball.missed) this._onMiss(ball);
     }
 
-    // Reset ball after it's done
-    if (this.ball.scored || this.ball.missed) {
-      this.ballResetTimer += dt;
-      if (this.ballResetTimer > 0.6) {
-        this.ball.reset();
-        this.ball.streakLevel = this.scoring.getStreakLevel();
-        this.hoop.resetForShot();
-        this.ballResetTimer = 0;
-      }
+    // As soon as the active ball has hit something (or scored/missed),
+    // promote the next ball in the pool so the player can shoot again.
+    const active = this.activeBall;
+    if (active.hasContacted || active.scored || active.missed) {
+      this._promoteNextBall();
     }
 
     // Check stage complete before time-up (completing target trumps timer)
@@ -417,11 +475,11 @@ export class Game {
     }
   }
 
-  _onScore(isSwish) {
-    this.ball.scored = true;
-    this.ball.active = false;
-    this.ball.visible = false;
-    this.ballResetTimer = 0;
+  _onScore(isSwish, ball) {
+    if (!ball.active) return;
+    ball.active = false;
+    ball.scored = true;
+    ball.hasContacted = true;
 
     const result = this.scoring.scoreShot(isSwish);
     this.hoop.triggerNetRipple();
@@ -448,13 +506,12 @@ export class Game {
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
   }
 
-  _onMiss() {
-    if (this.ball.missed && this.ball.active) {
-      this.ball.active = false;
-      this.ballResetTimer = 0;
-      this.scoring.missShot();
-      this.audio.playMiss();
-    }
+  _onMiss(ball) {
+    if (!ball.active || !ball.missed) return;
+    ball.active = false;
+    ball.hasContacted = true;
+    this.scoring.missShot();
+    this.audio.playMiss();
   }
 
   _onStageClear() {
@@ -462,14 +519,14 @@ export class Game {
     this.screens.startStageClear();
     this.audio.playStageClear();
     this.particles.emitCelebration(this.canvas.width, this.canvas.height);
-    this.ball.reset();
+    this._resetBallPool();
   }
 
   _onTimeUp() {
     this.audio.playTimeUp();
     this.screens.startFlash();
     this.scoring.saveHighScore();
-    this.ball.reset();
+    this._resetBallPool();
 
     // Go to name entry screen instead of directly to game over
     this.state = 'nameEntry';
@@ -486,7 +543,7 @@ export class Game {
     if (done) {
       this.scoring.advanceStage();
       this.hoop.setMovement(this.scoring.stageData.hoopSpeed, this.scoring.stageData.hoopAmplitude);
-      this.ball.reset();
+      this._resetBallPool();
       this.state = 'playing';
     }
   }
@@ -517,7 +574,7 @@ export class Game {
       }
 
       // Draw drag indicator
-      if (this.input.isDragging() && !this.ball.active) {
+      if (this.input.isDragging() && !this.activeBall.active) {
         this._renderDragIndicator(ctx);
       }
       return;
@@ -616,7 +673,7 @@ export class Game {
     const delta = this.input.getDragDelta();
     if (delta.dy >= 0) return; // only show for upward drags
 
-    const screen = this.ball.getScreenPos();
+    const screen = this.activeBall.getScreenPos();
     const startX = screen.x;
     const startY = screen.y;
 

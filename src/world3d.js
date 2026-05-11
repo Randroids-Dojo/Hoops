@@ -197,6 +197,7 @@ export class World3D {
       collisionFilterGroup: GROUP.FLOOR,
       collisionFilterMask: GROUP.BALL,
     });
+    floorBody.userData = { isFloor: true };
     floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     this.physicsWorld.addBody(floorBody);
   }

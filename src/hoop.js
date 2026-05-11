@@ -30,21 +30,6 @@ export class Hoop {
     this._buildVisuals();
     this._buildPhysics();
     this._reposition(0);
-
-    // Scoring state
-    this._lastBallY = null;
-    this._sensorActive = false;
-    this._sensorEntered = false; // ball has entered scoring cylinder from above
-    this._lastRimContactTime = -10;
-
-    // Listen for ball-rim / ball-backboard contacts to know if it's a swish
-    world3d.physicsWorld.addEventListener('beginContact', (e) => {
-      const isBall = (b) => b && b.material && b.material.name === 'ball';
-      const isHardware = (b) => b && (b.userData?.isRim || b.userData?.isBackboard);
-      if ((isBall(e.bodyA) && isHardware(e.bodyB)) || (isBall(e.bodyB) && isHardware(e.bodyA))) {
-        this._lastRimContactTime = performance.now() / 1000;
-      }
-    });
   }
 
   _buildVisuals() {
@@ -326,7 +311,8 @@ export class Hoop {
   }
 
   // Score detection: returns 'swish' | 'score' | 'rim' | null.
-  // Called every frame from Game while ball is active.
+  // Called every frame from Game for each active ball. Per-ball sensor state
+  // lives on the ball so multiple balls can be tracked independently.
   checkCollision(ball) {
     if (!ball.active || ball.scored || ball.missed) return null;
 
@@ -339,48 +325,37 @@ export class Hoop {
     const dz = p.z - cz;
     const horiz = Math.sqrt(dx * dx + dz * dz);
 
-    // Track rim hit (used to distinguish swish from board score)
-    if ((performance.now() / 1000 - this._lastRimContactTime) < 0.25) {
+    if ((performance.now() / 1000 - ball.lastRimContactTime) < 0.25) {
       ball.rimHit = true;
     }
 
-    // Sensor: ball must descend (vy<0) and pass through the disk above the rim.
-    // We look for: enter zone above rim (y > rim, horiz < rim), then exit below.
     const inCylinder = horiz < this.rimRadius * 0.95;
     const above = p.y > cy + COURT.ballRadius * 0.5;
     const below = p.y < cy - COURT.ballRadius * 0.4;
     const descending = ball.body.velocity.y < 0;
 
     if (inCylinder && above && descending) {
-      this._sensorEntered = true;
+      ball.sensorEntered = true;
     }
 
     let result = null;
-    if (this._sensorEntered && inCylinder && below) {
-      // Ball passed through the rim cleanly
+    if (ball.sensorEntered && inCylinder && below) {
       result = ball.rimHit ? 'score' : 'swish';
-      this._sensorEntered = false;
+      ball.sensorEntered = false;
       this.triggerNetRipple();
-    } else if (this._sensorEntered && !inCylinder && p.y < cy) {
-      // Ball was inside but exited the cylinder before fully descending — bailed
-      this._sensorEntered = false;
+    } else if (ball.sensorEntered && !inCylinder && p.y < cy) {
+      ball.sensorEntered = false;
     }
 
     if (result) return result;
 
-    // Report rim hits (used for audio cue in Game)
-    if (ball.rimHit && !this._reportedRim) {
-      this._reportedRim = true;
+    if (ball.rimHit && !ball.reportedRim) {
+      ball.reportedRim = true;
       return 'rim';
     }
-    if (!ball.rimHit) this._reportedRim = false;
+    if (!ball.rimHit) ball.reportedRim = false;
 
     return null;
-  }
-
-  resetForShot() {
-    this._sensorEntered = false;
-    this._reportedRim = false;
   }
 }
 

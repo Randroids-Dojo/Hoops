@@ -80,6 +80,7 @@ export class Ball {
     this.body.allowSleep = true;
     this.body.sleepSpeedLimit = 0.2;
     this.body.sleepTimeLimit = 0.6;
+    this.body.userData = { isBall: true, ball: this };
     world3d.physicsWorld.addBody(this.body);
 
     // ── State (mirrors original public API) ────────────────────────────
@@ -89,11 +90,19 @@ export class Ball {
     this.rimHit = false;   // touched the rim/backboard
     this.visible = true;
     this.flightTime = 0;
+    this.hasContacted = false;       // has touched anything since throw
+    this.settleTimer = 0;            // time spent settled
+    this.lastRimContactTime = -10;   // for swish detection
+    this.sensorEntered = false;      // hoop scoring sensor state
+    this.reportedRim = false;
 
     this.reset();
   }
 
-  reset() {
+  // Place this ball at the spawn point, ready to throw.
+  reset() { this.placeAtSpawn(); }
+
+  placeAtSpawn() {
     const p = COURT.ballSpawn;
     this.body.wakeUp();
     this.body.position.set(p.x, p.y, p.z);
@@ -102,7 +111,9 @@ export class Ball {
     this.body.angularVelocity.set(0, 0, 0);
     this.body.quaternion.set(0, 0, 0, 1);
     this.body.sleep();
-    this.body.collisionFilterMask = GROUP.RIM | GROUP.BACKBOARD | GROUP.FLOOR | GROUP.WALL;
+    // The ball at spawn shouldn't be jostled by other in-flight balls — turn
+    // off its collision mask until it's thrown.
+    this.body.collisionFilterMask = 0;
 
     this.mesh.position.copy(p);
     this.mesh.quaternion.identity();
@@ -110,6 +121,7 @@ export class Ball {
     this.trailPositions.length = 0;
     this._writeTrail();
     this.trailLine.visible = false;
+    this.glow.material.opacity = 0;
 
     this.active = false;
     this.scored = false;
@@ -117,7 +129,28 @@ export class Ball {
     this.rimHit = false;
     this.visible = true;
     this.flightTime = 0;
+    this.hasContacted = false;
+    this.settleTimer = 0;
+    this.sensorEntered = false;
+    this.reportedRim = false;
+    this.lastRimContactTime = -10;
     this.mesh.visible = true;
+  }
+
+  // Take this ball out of play — hide and disable physics interactions so it
+  // can sit unused in the pool until it's the next active ball.
+  retire() {
+    this.active = false;
+    this.visible = false;
+    this.mesh.visible = false;
+    this.glow.material.opacity = 0;
+    this.trailLine.visible = false;
+    // Park the body far below and disable collisions so it doesn't interact.
+    this.body.velocity.set(0, 0, 0);
+    this.body.angularVelocity.set(0, 0, 0);
+    this.body.position.set(0, -50, 0);
+    this.body.sleep();
+    this.body.collisionFilterMask = 0;
   }
 
   // power: drag pixels/sec (already clamped to [MIN_THROW_SPEED, MAX_THROW_SPEED])
@@ -129,12 +162,17 @@ export class Ball {
     this.missed = false;
     this.rimHit = false;
     this.flightTime = 0;
+    this.hasContacted = false;
+    this.settleTimer = 0;
+    this.sensorEntered = false;
+    this.reportedRim = false;
 
     const v = launchVector(power, lateralAngle);
     const t = clamp((power - 300) / 1500, 0, 1);
     const yaw = clamp(lateralAngle, -1, 1) * 0.18;
 
     this.body.wakeUp();
+    this.body.collisionFilterMask = GROUP.RIM | GROUP.BACKBOARD | GROUP.FLOOR | GROUP.WALL;
     this.body.velocity.set(v.vx, v.vy, v.vz);
 
     // Backspin — torque around the X axis (rotated by yaw)
@@ -156,7 +194,16 @@ export class Ball {
     if (!this.visible) {
       this.glow.material.opacity = 0;
       this.trailLine.visible = false;
+      return;
     }
+
+    // Settle tracking runs for any visible ball so retired-eligible balls
+    // can be detected even after scoring or being marked missed.
+    const pos = this.body.position;
+    const speed = this.body.velocity.length();
+    const settled = speed < 0.35 && pos.y < COURT.ballRadius + 0.1;
+    if (settled) this.settleTimer += dt;
+    else this.settleTimer = 0;
 
     if (!this.active) return;
 
@@ -170,10 +217,6 @@ export class Ball {
     }
 
     // Miss conditions: behind backboard, outside court, fell to floor & settled
-    const pos = this.body.position;
-    const speed = this.body.velocity.length();
-    const settled = speed < 0.35 && pos.y < COURT.ballRadius + 0.1;
-
     if (
       pos.z < COURT.rim.z - 1.5 ||
       Math.abs(pos.x) > 9 ||
@@ -183,6 +226,11 @@ export class Ball {
     ) {
       if (!this.scored) this.missed = true;
     }
+  }
+
+  // Ball has been at rest for > 1s and is past its first contact.
+  isSettled() {
+    return this.settleTimer > 1.0 && this.hasContacted;
   }
 
   setStreakLevel(level) {
