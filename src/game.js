@@ -715,8 +715,8 @@ export class Game {
       }
 
       // Power meter is always visible during play — the player times their
-      // release against it.
-      if (this.state === 'playing' && !this.activeBall.active) {
+      // release against it, and the frozen value persists between shots.
+      if (this.state === 'playing') {
         this._renderPowerMeter(ctx);
       }
 
