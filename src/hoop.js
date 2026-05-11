@@ -192,13 +192,15 @@ export class Hoop {
   }
 
   _buildPhysics() {
-    // Rim modeled as ring of small spheres (cannon has no torus).
+    // Rim modeled as ring of small spheres (cannon has no torus). Sphere radii
+    // match the visual tube radius so the rim feels like a thin metal ring,
+    // not a bumpy bracelet that catches the ball.
     this.rimBodies = [];
     for (let i = 0; i < RIM_SEGMENTS; i++) {
       const a = (i / RIM_SEGMENTS) * Math.PI * 2;
       const body = new CANNON.Body({
         type: CANNON.Body.KINEMATIC,
-        shape: new CANNON.Sphere(COURT.rimTube * 1.4),
+        shape: new CANNON.Sphere(COURT.rimTube),
         material: this.world3d.materials.rim,
         collisionFilterGroup: GROUP.RIM,
         collisionFilterMask: GROUP.BALL,

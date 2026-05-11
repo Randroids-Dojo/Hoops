@@ -5,11 +5,27 @@ import * as CANNON from 'cannon-es';
 import { COURT, GROUP, makeBasketballTexture, makeBasketballBumpMap } from './world3d.js';
 import { clamp } from './utils.js';
 
-// Tunable launch mapping. Input.power arrives in screen-pixels/sec roughly in
-// [300, 1800] after clamping. Map to a realistic launch speed in m/s.
+// Tunable launch mapping. Input.power arrives in [300, 1800] after clamping.
+// Map to a realistic launch speed in m/s.
 const MIN_SPEED_MS = 6.5;
 const MAX_SPEED_MS = 11.5;
 const LAUNCH_PITCH = 55 * Math.PI / 180; // ~55° arc — classic free-throw angle
+
+// Shared by ball.throwBall() and the predictive-arc preview so they always
+// compute the same launch vector from the same drag input.
+export function launchVector(power, lateralAngle) {
+  const t = clamp((power - 300) / 1500, 0, 1);
+  const speed = MIN_SPEED_MS + (MAX_SPEED_MS - MIN_SPEED_MS) * t;
+  const yaw = clamp(lateralAngle, -1, 1) * 0.18;
+  const horiz = speed * Math.cos(LAUNCH_PITCH);
+  const vert = speed * Math.sin(LAUNCH_PITCH);
+  return {
+    vx: Math.sin(yaw) * horiz,
+    vy: vert,
+    vz: -Math.cos(yaw) * horiz,
+    speed,
+  };
+}
 
 export class Ball {
   constructor(world3d) {
@@ -53,8 +69,11 @@ export class Ball {
       mass: COURT.ballMass,
       shape: new CANNON.Sphere(COURT.ballRadius),
       material: world3d.materials.ball,
-      linearDamping: 0.18,
-      angularDamping: 0.25,
+      // No air drag — the analytical predictor uses pure gravity, so the
+      // physics must too or the meter will lie. Floor friction settles the
+      // ball after misses.
+      linearDamping: 0.0,
+      angularDamping: 0.05,
       collisionFilterGroup: GROUP.BALL,
       collisionFilterMask: GROUP.RIM | GROUP.BACKBOARD | GROUP.FLOOR | GROUP.WALL,
     });
@@ -111,20 +130,12 @@ export class Ball {
     this.rimHit = false;
     this.flightTime = 0;
 
-    // Map drag power → launch speed
+    const v = launchVector(power, lateralAngle);
     const t = clamp((power - 300) / 1500, 0, 1);
-    const speed = MIN_SPEED_MS + (MAX_SPEED_MS - MIN_SPEED_MS) * t;
-
-    // Aim vector toward hoop with horizontal jitter from lateralAngle
-    const yaw = clamp(lateralAngle, -1, 1) * 0.18; // ~10° max sideways
-    const dirX = Math.sin(yaw);
-    const dirZ = -Math.cos(yaw);
-
-    const horiz = speed * Math.cos(LAUNCH_PITCH);
-    const vert = speed * Math.sin(LAUNCH_PITCH);
+    const yaw = clamp(lateralAngle, -1, 1) * 0.18;
 
     this.body.wakeUp();
-    this.body.velocity.set(dirX * horiz, vert, dirZ * horiz);
+    this.body.velocity.set(v.vx, v.vy, v.vz);
 
     // Backspin — torque around the X axis (rotated by yaw)
     const spin = 14 + t * 8;

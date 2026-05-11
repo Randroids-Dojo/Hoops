@@ -6,7 +6,7 @@ import * as CANNON from 'cannon-es';
 
 export const COURT = {
   rim: new THREE.Vector3(0, 3.05, -3),     // rim center (regulation 10ft)
-  rimRadius: 0.225,                         // 18in regulation
+  rimRadius: 0.32,                          // oversized arcade-style for forgiveness
   rimTube: 0.012,
   backboardSize: { w: 1.83, h: 1.07, d: 0.04 },
   backboardOffset: 0.15 + 0.225,            // rim front to backboard face

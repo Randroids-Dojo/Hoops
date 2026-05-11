@@ -69,13 +69,15 @@ export class Input {
     const dx = pos.x - this.startX;
     const dy = pos.y - this.startY;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    const elapsed = (performance.now() - this.startTime) / 1000;
 
     // Check if it's a swipe upward (dy should be negative for upward)
     if (distance > MIN_SWIPE_DISTANCE && dy < -MIN_SWIPE_DISTANCE) {
-      // Power from vertical speed, angle from horizontal offset
-      const power = Math.abs(dy) / Math.max(elapsed, 0.01);
-      const lateralAngle = dx / Math.max(Math.abs(dy), 1); // -1 to 1 roughly
+      // Distance-based power: drag length / calibrated reference. Matches the
+      // power-meter readout exactly so what the player sees is what they get.
+      const ref = window.innerHeight * 0.55;
+      const norm = Math.min(Math.abs(dy) / ref, 1);
+      const power = 300 + norm * 1500;        // [300, 1800] — same range as before
+      const lateralAngle = dx / Math.max(Math.abs(dy), 1); // -1..1 roughly
 
       if (this.onThrow) {
         this.onThrow(power, lateralAngle);

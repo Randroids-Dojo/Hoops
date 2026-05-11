@@ -1,9 +1,11 @@
 // Game state machine and main loop
 
+import * as THREE from 'three';
 import { COLORS, clamp, MIN_THROW_SPEED, MAX_THROW_SPEED } from './utils.js';
-import { Ball } from './ball.js';
+import { Ball, launchVector } from './ball.js';
 import { Hoop } from './hoop.js';
 import { Lane } from './lane.js';
+import { COURT } from './world3d.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { AudioEngine } from './audio.js';
@@ -547,6 +549,69 @@ export class Game {
     }
   }
 
+  // Solve for the launch speed that puts the ball in the rim at a 55° arc, then
+  // convert to a [0..1] power-meter fraction. Tracks moving hoops live.
+  _perfectShotNorm() {
+    const spawn = COURT.ballSpawn;
+    const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
+    const R = Math.sqrt((spawn.x - rimX) ** 2 + (spawn.z - COURT.rim.z) ** 2);
+    const h = COURT.rim.y - spawn.y;
+    const theta = 55 * Math.PI / 180;
+    const denom = 2 * Math.cos(theta) ** 2 * (R * Math.tan(theta) - h);
+    if (denom <= 0) return 0.5;
+    const v0 = Math.sqrt((9.82 * R * R) / denom);
+    // Same mapping as launchVector: speed ∈ [6.5, 11.5] m/s → power norm ∈ [0, 1]
+    return clamp((v0 - 6.5) / 5, 0.05, 0.95);
+  }
+
+  // Predict the shot analytically (exact ballistic solution) and emit sample
+  // points along the visible rising portion of the arc.
+  _predictShot(delta) {
+    const ref = this.canvas.height * 0.55;
+    const norm = Math.min(Math.abs(delta.dy) / ref, 1);
+    const power = 300 + norm * 1500;
+    const lateralAngle = delta.dx / Math.max(Math.abs(delta.dy), 1);
+    const v = launchVector(power, lateralAngle);
+
+    const spawn = COURT.ballSpawn;
+    const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
+    const rimY = COURT.rim.y;
+    const rimZ = COURT.rim.z;
+    const rimR = COURT.rimRadius;
+    const g = 9.82;
+
+    // Analytical outcome: find when the ball would re-cross the rim plane on
+    // descent. y(t) = y0 + vy·t − ½·g·t² = rimY  ⇒ two roots; take the larger.
+    let outcome = 'miss';
+    const disc = v.vy * v.vy - 2 * g * (rimY - spawn.y);
+    if (disc > 0) {
+      const tCross = (v.vy + Math.sqrt(disc)) / g;
+      const xAt = spawn.x + v.vx * tCross;
+      const zAt = spawn.z + v.vz * tCross;
+      const horizErr = Math.hypot(xAt - rimX, zAt - rimZ);
+      // Clean-pass clearance: rim_R − ball_R − tube_R − safety. Anything
+      // tighter than that and the ball clears without touching the rim.
+      const swishMax = rimR - COURT.ballRadius - COURT.rimTube - 0.015;
+      if (horizErr < swishMax) outcome = 'swish';
+      else if (horizErr < rimR * 0.95) outcome = 'rim';
+    }
+
+    // Visible arc samples — analytical, up to 70% of time-to-apex.
+    const apexT = Math.max(0, v.vy / g);
+    const visEnd = apexT * 0.7;
+    const N = 20;
+    const samples = [];
+    for (let i = 0; i <= N; i++) {
+      const t = (i / N) * visEnd;
+      samples.push(new THREE.Vector3(
+        spawn.x + v.vx * t,
+        spawn.y + v.vy * t - 0.5 * g * t * t,
+        spawn.z + v.vz * t,
+      ));
+    }
+    return { samples, outcome, norm };
+  }
+
   _renderDragIndicator(ctx) {
     const delta = this.input.getDragDelta();
     if (delta.dy >= 0) return; // only show for upward drags
@@ -555,30 +620,31 @@ export class Game {
     const startX = screen.x;
     const startY = screen.y;
 
-    const power = Math.min(Math.abs(delta.dy) / (this.canvas.height * 0.55), 1);
-    const hot = power > 0.55;
-    const aimColor = hot ? COLORS.secondary : COLORS.primary;
+    const pred = this._predictShot(delta);
+    const power = pred.norm;
+    const outcomeColors = { swish: COLORS.scoreGreen, rim: '#FFCC00', miss: '#FF4D4D' };
+    const arcColor = outcomeColors[pred.outcome];
 
-    // ── Aim arrow — long, thick, with an arrowhead ─────────────────────
+    // ── Predictive arc — short, fades before apex ──────────────────────
+    this._renderArcPreview(ctx, pred, arcColor);
+
+    // ── Aim arrow — long, thick, with arrowhead. Tinted by outcome. ────
     const tipX = startX + delta.dx * 0.9;
     const tipY = startY + delta.dy * 0.9;
 
     ctx.save();
-    ctx.shadowColor = aimColor;
+    ctx.shadowColor = arcColor;
     ctx.shadowBlur = 14;
-    ctx.strokeStyle = aimColor;
-    ctx.fillStyle = aimColor;
+    ctx.strokeStyle = arcColor;
+    ctx.fillStyle = arcColor;
     ctx.lineWidth = 7;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-
-    // Shaft
     ctx.beginPath();
     ctx.moveTo(startX, startY);
     ctx.lineTo(tipX, tipY);
     ctx.stroke();
 
-    // Arrowhead
     const ang = Math.atan2(tipY - startY, tipX - startX);
     const headLen = 26;
     const headWide = Math.PI / 7;
@@ -590,7 +656,7 @@ export class Game {
     ctx.fill();
     ctx.restore();
 
-    // ── Power meter — fixed, right edge, large vertical bar ────────────
+    // ── Power meter with sweet-spot zone ───────────────────────────────
     const w = this.canvas.width;
     const h = this.canvas.height;
     const barH = Math.min(h * 0.5, 360);
@@ -606,42 +672,98 @@ export class Game {
     this.screens._roundRect(ctx, barX, barY, barW, barH, 6);
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
 
-    // Fill
+    // Sweet-spot zone — green band at the perfect-shot fraction
+    const sweet = this._perfectShotNorm();
+    const sweetBand = 0.06; // ±6% tolerance
+    const zoneTop = barY + barH - barH * Math.min(1, sweet + sweetBand);
+    const zoneH = barH * (2 * sweetBand);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.35)';
+    ctx.strokeStyle = COLORS.scoreGreen;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = COLORS.scoreGreen;
+    ctx.shadowBlur = 10;
+    ctx.fillRect(barX + 2, zoneTop, barW - 4, zoneH);
+    ctx.strokeRect(barX + 2, zoneTop, barW - 4, zoneH);
+    ctx.restore();
+
+    // Sweet-spot tick label
+    ctx.save();
+    ctx.strokeStyle = COLORS.scoreGreen;
+    ctx.fillStyle = COLORS.scoreGreen;
+    ctx.lineWidth = 1.5;
+    const sweetY = barY + barH - barH * sweet;
+    ctx.beginPath();
+    ctx.moveTo(barX - 14, sweetY);
+    ctx.lineTo(barX - 2, sweetY);
+    ctx.stroke();
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('PERFECT', barX - 16, sweetY + 3);
+    ctx.restore();
+
+    // Live power fill
     const fillH = barH * power;
+    ctx.save();
     const grad = ctx.createLinearGradient(0, barY + barH, 0, barY);
     grad.addColorStop(0, COLORS.primary);
     grad.addColorStop(0.55, '#ffd34d');
     grad.addColorStop(1, COLORS.secondary);
     ctx.fillStyle = grad;
-    ctx.shadowColor = aimColor;
+    ctx.shadowColor = arcColor;
     ctx.shadowBlur = 16;
     this.screens._roundRect(ctx, barX + 2, barY + barH - fillH + 2, barW - 4, Math.max(0, fillH - 4), 4);
     ctx.fill();
     ctx.restore();
 
-    // Sweet-spot tick marks
+    // Power readout & label
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 1.5;
-    for (const t of [0.25, 0.5, 0.75]) {
-      const ty = barY + barH - barH * t;
-      ctx.beginPath();
-      ctx.moveTo(barX - 6, ty);
-      ctx.lineTo(barX, ty);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // Label
-    ctx.save();
-    ctx.fillStyle = aimColor;
+    ctx.fillStyle = arcColor;
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('POWER', barX + barW / 2, barY - 12);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.font = 'bold 14px monospace';
     ctx.fillText(`${Math.round(power * 100)}%`, barX + barW / 2, barY + barH + 22);
     ctx.restore();
   }
+
+  _renderArcPreview(ctx, pred, color) {
+    const { samples } = pred;
+    if (samples.length < 4) return;
+
+    const projected = samples.map((s) => this.world3d.projectToScreen(s));
+    if (projected.length < 2) return;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+
+    // Draw as a series of fading dashed segments
+    for (let i = 1; i < projected.length; i++) {
+      const t = i / (projected.length - 1);
+      const alpha = (1 - t) * 0.85;
+      if (alpha <= 0.05) continue;
+      ctx.strokeStyle = withAlpha(color, alpha);
+      ctx.beginPath();
+      ctx.moveTo(projected[i - 1].x, projected[i - 1].y);
+      ctx.lineTo(projected[i].x, projected[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// Convert a hex color (#RRGGBB / #RGB) to rgba() with the given alpha.
+function withAlpha(hex, a) {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
