@@ -61,11 +61,13 @@ export class Game {
     this.edgePulseTimer = 0;
     this.previousState = null; // for pause
 
-    // Oscillating power meter — sweeps 0..1..0 sinusoidally during play. The
-    // shot's power is whatever the meter reads at the moment of release, so
-    // the player times their flick against the moving bar.
+    // Power meter — starts at the bottom (0) when the player begins a drag,
+    // sweeps upward sinusoidally while the pointer is held, and freezes at
+    // its current value the instant the player lets go. The shot's power
+    // uses whatever value is showing at release.
     this._meterPhase = 0;
     this._meterRateHz = 1.1;
+    this._wasDragging = false;
     this.leaderboardReturnState = 'title'; // where to go back from leaderboard
     this.globalRank = null; // rank from last submission
 
@@ -534,8 +536,16 @@ export class Game {
     this.world3d.step(dt);
     for (const b of this.balls) b.update(dt);
 
-    // Advance the oscillating power meter so it sweeps 0→1→0 sinusoidally.
-    this._meterPhase += dt * 2 * Math.PI * this._meterRateHz;
+    // The meter only animates while the player is dragging. Starting a new
+    // drag snaps it back to the bottom; releasing freezes it where it sits.
+    const dragging = this.input.isDragging();
+    if (dragging && !this._wasDragging) {
+      this._meterPhase = 0;
+    }
+    if (dragging) {
+      this._meterPhase += dt * 2 * Math.PI * this._meterRateHz;
+    }
+    this._wasDragging = dragging;
 
     // Fire particles on hoop when streak active
     const streakLevel = this.scoring.getStreakLevel();
