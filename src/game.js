@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { COLORS, clamp, MIN_THROW_SPEED, MAX_THROW_SPEED } from './utils.js';
-import { Ball, launchVector } from './ball.js';
+import { Ball, launchVector, MIN_SPEED_MS, MAX_SPEED_MS } from './ball.js';
 import { Hoop } from './hoop.js';
 import { Lane } from './lane.js';
 import { COURT } from './world3d.js';
@@ -680,6 +680,21 @@ export class Game {
     }
   }
 
+  // Drag-power fraction that produces the perfect rim shot at the current
+  // hoop position. Used to scale the visual arc so a sweet drag distance
+  // puts the on-screen reticle exactly on the rim.
+  _perfectDragNorm() {
+    const spawn = COURT.ballSpawn;
+    const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
+    const R = Math.sqrt((spawn.x - rimX) ** 2 + (spawn.z - COURT.rim.z) ** 2);
+    const h = COURT.rim.y - spawn.y;
+    const theta = 55 * Math.PI / 180;
+    const denom = 2 * Math.cos(theta) ** 2 * (R * Math.tan(theta) - h);
+    if (denom <= 0) return 0.5;
+    const v0 = Math.sqrt((9.82 * R * R) / denom);
+    return clamp((v0 - MIN_SPEED_MS) / (MAX_SPEED_MS - MIN_SPEED_MS), 0.05, 0.95);
+  }
+
   // Predict the shot analytically for the player's *current drag*. The
   // arc + reticle grow with drag length and tilt with lateral motion, so
   // the player sees their aim take shape in real time. Meter timing is
@@ -820,9 +835,12 @@ export class Game {
     ctx.restore();
   }
 
-  // Drag indicator — only the trajectory arc + landing reticle. Power comes
-  // from the live oscillating meter; the drag direction controls lateral
-  // aim only.
+  // Drag indicator — a screen-space arc whose endpoint tracks the drag.
+  // Short drag → short arc near the ball. Long drag → arc reaches up to
+  // the rim. The endpoint is scaled so a perfect-power drag plants the
+  // reticle right on the rim, so the player learns drag distance by
+  // sight: "make the reticle touch the rim, then time release on the
+  // meter."
   _renderAimArc(ctx) {
     const delta = this.input.getDragDelta();
     if (delta.dy >= 0) return; // require upward drag to indicate intent
@@ -832,8 +850,22 @@ export class Game {
     const outcomeColors = { swish: COLORS.scoreGreen, rim: '#FFCC00', miss: '#FF4D4D' };
     const arcColor = outcomeColors[pred.outcome];
 
-    const landing = this.world3d.projectToScreen(pred.landing);
-    this._renderTrajectoryArc(ctx, start, landing, arcColor, pred.outcome);
+    // Scale drag delta so that the visual endpoint lines up with the rim
+    // when the player has dragged a "perfect" power. Below that → endpoint
+    // short of rim, above → endpoint past it. Direction follows the drag.
+    const rimScreen = this.world3d.projectToScreen(new THREE.Vector3(
+      COURT.rim.x + (this.hoop.offsetX || 0), COURT.rim.y, COURT.rim.z,
+    ));
+    const ballToRim = Math.hypot(rimScreen.x - start.x, rimScreen.y - start.y);
+    const perfectDragPx = Math.max(1, this._perfectDragNorm() * this.canvas.height * 0.55);
+    const scale = ballToRim / perfectDragPx;
+
+    const end = {
+      x: start.x + delta.dx * scale,
+      y: start.y + delta.dy * scale,
+    };
+
+    this._renderTrajectoryArc(ctx, start, end, arcColor, pred.outcome);
   }
 
   _renderTrajectoryArc(ctx, start, landing, color, outcome) {
