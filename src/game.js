@@ -50,6 +50,12 @@ export class Game {
 
     this.edgePulseTimer = 0;
     this.previousState = null; // for pause
+
+    // Oscillating power meter — sweeps 0..1..0 sinusoidally during play. The
+    // shot's power is whatever the meter reads at the moment of release, so
+    // the player times their flick against the moving bar.
+    this._meterPhase = 0;
+    this._meterRateHz = 1.1;
     this.leaderboardReturnState = 'title'; // where to go back from leaderboard
     this.globalRank = null; // rank from last submission
 
@@ -61,6 +67,11 @@ export class Game {
 
   get activeBall() {
     return this.balls[this.activeBallIdx];
+  }
+
+  // Current power meter value in [0..1], sinusoidal sweep.
+  _currentMeterPower() {
+    return (1 - Math.cos(this._meterPhase)) / 2;
   }
 
   // Tag-along listener: every ball-vs-hardware/floor contact stamps the ball
@@ -103,10 +114,13 @@ export class Game {
   }
 
   _setupInput() {
-    this.input.onThrow = (power, lateralAngle) => {
+    this.input.onThrow = (_inputPower, lateralAngle) => {
       if (this.state === 'playing' && !this.activeBall.active) {
-        const clampedPower = clamp(power, MIN_THROW_SPEED, MAX_THROW_SPEED);
-        this.activeBall.throwBall(clampedPower, lateralAngle);
+        // Power comes from the oscillating meter at the moment of release,
+        // not from the drag distance. Drag only controls lateral aim.
+        const norm = this._currentMeterPower();
+        const launchPower = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
+        this.activeBall.throwBall(launchPower, lateralAngle);
         this.activeBall.streakLevel = this.scoring.getStreakLevel();
         this.audio.playThrow();
       }
@@ -423,6 +437,9 @@ export class Game {
     this.hoop.update(dt, this.balls);
     for (const b of this.balls) b.update(dt);
 
+    // Advance the oscillating power meter so it sweeps 0→1→0 sinusoidally.
+    this._meterPhase += dt * 2 * Math.PI * this._meterRateHz;
+
     // Fire particles on hoop when streak active
     const streakLevel = this.scoring.getStreakLevel();
     if (streakLevel >= 2) {
@@ -586,9 +603,16 @@ export class Game {
         this.screens.renderPause(ctx, canvas);
       }
 
-      // Draw drag indicator
+      // Power meter is always visible during play — the player times their
+      // release against it.
+      if (this.state === 'playing' && !this.activeBall.active) {
+        this._renderPowerMeter(ctx);
+      }
+
+      // While dragging: also show the live trajectory arc + landing reticle
+      // for the current meter power and aim direction.
       if (this.input.isDragging() && !this.activeBall.active) {
-        this._renderDragIndicator(ctx);
+        this._renderAimArc(ctx);
       }
       return;
     }
@@ -634,12 +658,13 @@ export class Game {
     return clamp((v0 - 6.5) / 5, 0.05, 0.95);
   }
 
-  // Predict the shot analytically (exact ballistic solution) and emit sample
-  // points along the visible rising portion of the arc.
+  // Predict the shot analytically (exact ballistic solution) for the current
+  // meter power and the drag's lateral direction. The arc + reticle update
+  // in real time as the meter sweeps so the player sees exactly where the
+  // shot would land at any release moment.
   _predictShot(delta) {
-    const ref = this.canvas.height * 0.55;
-    const norm = Math.min(Math.abs(delta.dy) / ref, 1);
-    const power = 300 + norm * 1500;
+    const norm = this._currentMeterPower();
+    const power = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
     const lateralAngle = delta.dx / Math.max(Math.abs(delta.dy), 1);
     const v = launchVector(power, lateralAngle);
 
@@ -676,27 +701,18 @@ export class Game {
     return { landing, outcome, norm };
   }
 
-  _renderDragIndicator(ctx) {
-    const delta = this.input.getDragDelta();
-    if (delta.dy >= 0) return; // only show for upward drags
-
-    const start = this.activeBall.getScreenPos();
-    const pred = this._predictShot(delta);
-    const power = pred.norm;
-    const outcomeColors = { swish: COLORS.scoreGreen, rim: '#FFCC00', miss: '#FF4D4D' };
-    const arcColor = outcomeColors[pred.outcome];
-
-    // ── Predicted trajectory — single screen-space arc from the ball to
-    // where the ball will cross the rim plane. Color-coded by outcome,
-    // with a target reticle at the landing point. The arc is drawn as a
-    // quadratic Bezier in screen space so the curvature reads clearly
-    // even though the actual 3D parabola foreshortens to nearly a line.
-    const landing = this.world3d.projectToScreen(pred.landing);
-    this._renderTrajectoryArc(ctx, start, landing, arcColor, pred.outcome);
-
-    // ── Power meter with sweet-spot zone ───────────────────────────────
+  // Live, always-on power meter. The sweep ticks across the bar regardless
+  // of whether the player is currently dragging — the shot fires at
+  // whatever value the meter shows at the moment of release.
+  _renderPowerMeter(ctx) {
     const w = this.canvas.width;
     const h = this.canvas.height;
+    const power = this._currentMeterPower();
+    const sweet = this._perfectShotNorm();
+    const sweetBand = 0.06;
+    const inSweet = Math.abs(power - sweet) < sweetBand;
+    const trackColor = inSweet ? COLORS.scoreGreen : COLORS.primary;
+
     const barH = Math.min(h * 0.5, 360);
     const barW = 22;
     const barX = w - barW - 26;
@@ -712,22 +728,20 @@ export class Game {
     ctx.stroke();
     ctx.restore();
 
-    // Sweet-spot zone — green band at the perfect-shot fraction
-    const sweet = this._perfectShotNorm();
-    const sweetBand = 0.06; // ±6% tolerance
+    // Sweet-spot zone
     const zoneTop = barY + barH - barH * Math.min(1, sweet + sweetBand);
     const zoneH = barH * (2 * sweetBand);
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 255, 65, 0.35)';
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.32)';
     ctx.strokeStyle = COLORS.scoreGreen;
     ctx.lineWidth = 1.5;
     ctx.shadowColor = COLORS.scoreGreen;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = inSweet ? 16 : 10;
     ctx.fillRect(barX + 2, zoneTop, barW - 4, zoneH);
     ctx.strokeRect(barX + 2, zoneTop, barW - 4, zoneH);
     ctx.restore();
 
-    // Sweet-spot tick label
+    // PERFECT label tick
     ctx.save();
     ctx.strokeStyle = COLORS.scoreGreen;
     ctx.fillStyle = COLORS.scoreGreen;
@@ -742,7 +756,7 @@ export class Game {
     ctx.fillText('PERFECT', barX - 16, sweetY + 3);
     ctx.restore();
 
-    // Live power fill
+    // Live oscillating fill
     const fillH = barH * power;
     ctx.save();
     const grad = ctx.createLinearGradient(0, barY + barH, 0, barY);
@@ -750,15 +764,29 @@ export class Game {
     grad.addColorStop(0.55, '#ffd34d');
     grad.addColorStop(1, COLORS.secondary);
     ctx.fillStyle = grad;
-    ctx.shadowColor = arcColor;
-    ctx.shadowBlur = 16;
+    ctx.shadowColor = trackColor;
+    ctx.shadowBlur = 18;
     this.screens._roundRect(ctx, barX + 2, barY + barH - fillH + 2, barW - 4, Math.max(0, fillH - 4), 4);
     ctx.fill();
     ctx.restore();
 
-    // Power readout & label
+    // Moving indicator line at the current power level — makes the sweep
+    // motion easy to read at a glance.
     ctx.save();
-    ctx.fillStyle = arcColor;
+    const indY = barY + barH - fillH;
+    ctx.strokeStyle = trackColor;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = trackColor;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(barX - 4, indY);
+    ctx.lineTo(barX + barW + 4, indY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Label
+    ctx.save();
+    ctx.fillStyle = trackColor;
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('POWER', barX + barW / 2, barY - 12);
@@ -766,6 +794,22 @@ export class Game {
     ctx.font = 'bold 14px monospace';
     ctx.fillText(`${Math.round(power * 100)}%`, barX + barW / 2, barY + barH + 22);
     ctx.restore();
+  }
+
+  // Drag indicator — only the trajectory arc + landing reticle. Power comes
+  // from the live oscillating meter; the drag direction controls lateral
+  // aim only.
+  _renderAimArc(ctx) {
+    const delta = this.input.getDragDelta();
+    if (delta.dy >= 0) return; // require upward drag to indicate intent
+
+    const start = this.activeBall.getScreenPos();
+    const pred = this._predictShot(delta);
+    const outcomeColors = { swish: COLORS.scoreGreen, rim: '#FFCC00', miss: '#FF4D4D' };
+    const arcColor = outcomeColors[pred.outcome];
+
+    const landing = this.world3d.projectToScreen(pred.landing);
+    this._renderTrajectoryArc(ctx, start, landing, arcColor, pred.outcome);
   }
 
   _renderTrajectoryArc(ctx, start, landing, color, outcome) {
