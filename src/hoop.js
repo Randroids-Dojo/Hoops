@@ -164,8 +164,35 @@ export class Hoop {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
     geo.setIndex(indices);
 
-    // Save base positions for sway animation
-    this._netBase = new Float32Array(positions);
+    // ── Cloth simulation data ───────────────────────────────────────
+    // One Verlet particle per net vertex. The top ring (r=0) is pinned
+    // to the rim; the rest is free and constrained to its neighbors.
+    this._netParticles = [];
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+      const r = Math.floor((i / 3) % (NET_RINGS + 1));
+      this._netParticles.push({
+        x, y, z, px: x, py: y, pz: z, pinned: r === 0,
+      });
+    }
+
+    this._netConstraints = [];
+    const addCon = (a, b) => {
+      const pa = this._netParticles[a];
+      const pb = this._netParticles[b];
+      const len = Math.hypot(pa.x - pb.x, pa.y - pb.y, pa.z - pb.z);
+      this._netConstraints.push({ a, b, len });
+    };
+    for (let s = 0; s < NET_STRANDS; s++) {
+      const sNext = (s + 1) % NET_STRANDS;
+      for (let r = 0; r < NET_RINGS; r++) {
+        addCon(idx(s, r), idx(s, r + 1));               // vertical strand
+        addCon(idx(s, r), idx(sNext, r + 1));           // diagonal
+        addCon(idx(sNext, r), idx(s, r + 1));           // counter-diagonal
+        if (r > 0) addCon(idx(s, r), idx(sNext, r));    // horizontal ring
+      }
+      addCon(idx(s, NET_RINGS), idx(sNext, NET_RINGS)); // bottom ring
+    }
 
     const net = new THREE.LineSegments(
       geo,
@@ -265,7 +292,7 @@ export class Hoop {
     return p.y;
   }
 
-  update(dt) {
+  update(dt, balls = null) {
     // Hoop oscillation
     if (this.moveSpeed > 0) {
       this.movePhase += this.moveSpeed * dt;
@@ -274,10 +301,9 @@ export class Hoop {
       this._reposition(0);
     }
 
-    // Net animation
     this._netTime += dt;
     if (this._netRipple > 0) this._netRipple = Math.max(0, this._netRipple - dt * 1.6);
-    this._animateNet(dt);
+    this._simulateNet(dt, balls);
 
     // Fire ring pulse for streaks
     if (this.fireIntensity > 0) {
@@ -291,21 +317,125 @@ export class Hoop {
     }
   }
 
-  _animateNet(dt) {
-    const arr = this.net.geometry.attributes.position.array;
-    const base = this._netBase;
-    const ripple = this._netRipple;
+  // Verlet cloth simulation. The top ring is pinned to the rim; the rest is
+  // a free fabric that flexes when a ball pushes through.
+  _simulateNet(dt, balls) {
+    const damping = 0.94;
+    const gravity = -3.5;
     const t = this._netTime;
+    const ballR = COURT.ballRadius;
+    const ringWidth = NET_RINGS + 1;
+
+    // Re-pin top ring at the rim (matches any rim movement implicitly via
+    // the parent assembly transform; coords here are net-local).
     for (let s = 0; s < NET_STRANDS; s++) {
-      for (let r = 0; r <= NET_RINGS; r++) {
-        const i = (s * (NET_RINGS + 1) + r) * 3;
-        const sway = (r / NET_RINGS) * 0.012;
-        const wobble = sway * Math.sin(t * 2.4 + s * 0.6);
-        const drop = ripple * (r / NET_RINGS) * 0.07 * Math.sin(t * 14 + s);
-        arr[i + 0] = base[i + 0] + Math.sin(t * 1.7 + s) * sway * 0.6 + wobble * Math.cos(s);
-        arr[i + 1] = base[i + 1] - drop * 0.4;
-        arr[i + 2] = base[i + 2] + Math.cos(t * 1.5 + s) * sway * 0.6 + wobble * Math.sin(s);
+      const a = (s / NET_STRANDS) * Math.PI * 2;
+      const p = this._netParticles[s * ringWidth];
+      p.x = Math.cos(a) * this.rimRadius;
+      p.y = 0;
+      p.z = Math.sin(a) * this.rimRadius;
+      p.px = p.x; p.py = p.y; p.pz = p.z;
+    }
+
+    // Verlet integration for free particles.
+    const gdt2 = gravity * dt * dt;
+    for (let i = 0; i < this._netParticles.length; i++) {
+      const p = this._netParticles[i];
+      if (p.pinned) continue;
+      const vx = (p.x - p.px) * damping;
+      const vy = (p.y - p.py) * damping;
+      const vz = (p.z - p.pz) * damping;
+      p.px = p.x; p.py = p.y; p.pz = p.z;
+      p.x += vx;
+      p.y += vy + gdt2;
+      p.z += vz;
+    }
+
+    // Pre-compute which balls are close enough to interact with the net.
+    const nearBalls = [];
+    if (balls) {
+      const cx = this.rimCenter.x + this.offsetX;
+      const cy = this.rimCenter.y;
+      const cz = this.rimCenter.z;
+      for (const ball of balls) {
+        if (!ball.visible) continue;
+        const bp = ball.body.position;
+        const dx = bp.x - cx, dy = bp.y - cy, dz = bp.z - cz;
+        // Reach far enough to catch the bottom of the net plus a margin.
+        if (dx * dx + dy * dy + dz * dz > 0.9 * 0.9) continue;
+        nearBalls.push({ x: dx, y: dy, z: dz });
       }
+    }
+
+    // Constraint relaxation + ball collision, a few Gauss-Seidel passes.
+    const iters = 4;
+    for (let it = 0; it < iters; it++) {
+      for (const c of this._netConstraints) {
+        const pa = this._netParticles[c.a];
+        const pb = this._netParticles[c.b];
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const dz = pb.z - pa.z;
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist < 1e-6) continue;
+        // Net is taut downward but stretchy outward — clamp ratio.
+        const diff = (dist - c.len) / dist * 0.5;
+        const ox = dx * diff, oy = dy * diff, oz = dz * diff;
+        if (!pa.pinned) { pa.x += ox; pa.y += oy; pa.z += oz; }
+        if (!pb.pinned) { pb.x -= ox; pb.y -= oy; pb.z -= oz; }
+      }
+
+      for (const b of nearBalls) {
+        const bR2 = ballR * ballR;
+        for (let i = 0; i < this._netParticles.length; i++) {
+          const p = this._netParticles[i];
+          if (p.pinned) continue;
+          const dx = p.x - b.x;
+          const dy = p.y - b.y;
+          const dz = p.z - b.z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < bR2 && d2 > 1e-6) {
+            const d = Math.sqrt(d2);
+            const k = (ballR - d) / d;
+            p.x += dx * k;
+            p.y += dy * k;
+            p.z += dz * k;
+          }
+        }
+      }
+    }
+
+    // Gentle ambient sway when no ball is interacting — keeps the net alive.
+    if (nearBalls.length === 0) {
+      for (let s = 0; s < NET_STRANDS; s++) {
+        for (let r = 1; r <= NET_RINGS; r++) {
+          const p = this._netParticles[s * ringWidth + r];
+          const f = (r / NET_RINGS) * 0.0006;
+          p.x += Math.sin(t * 1.7 + s) * f;
+          p.z += Math.cos(t * 1.5 + s) * f;
+        }
+      }
+    }
+
+    // Score-burst ripple kept for visual punch.
+    if (this._netRipple > 0) {
+      const amp = this._netRipple * 0.06;
+      for (let s = 0; s < NET_STRANDS; s++) {
+        for (let r = 1; r <= NET_RINGS; r++) {
+          const p = this._netParticles[s * ringWidth + r];
+          const f = (r / NET_RINGS);
+          p.y -= amp * f * Math.sin(this._netTime * 14 + s) * 0.4;
+        }
+      }
+    }
+
+    // Push particle positions back into the geometry buffer.
+    const arr = this.net.geometry.attributes.position.array;
+    for (let i = 0; i < this._netParticles.length; i++) {
+      const p = this._netParticles[i];
+      arr[i * 3 + 0] = p.x;
+      arr[i * 3 + 1] = p.y;
+      arr[i * 3 + 2] = p.z;
     }
     this.net.geometry.attributes.position.needsUpdate = true;
   }

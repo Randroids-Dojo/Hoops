@@ -404,7 +404,7 @@ export class Game {
 
     if (this.state === 'title' || this.state === 'leaderboard' || this.state === 'nameEntry') {
       this.lane.update(dt);
-      this.hoop.update(dt);
+      this.hoop.update(dt, this.balls);
       return;
     }
 
@@ -420,7 +420,7 @@ export class Game {
   _updatePlaying(dt) {
     this.world3d.step(dt);
     this.lane.update(dt);
-    this.hoop.update(dt);
+    this.hoop.update(dt, this.balls);
     for (const b of this.balls) b.update(dt);
 
     // Fire particles on hoop when streak active
@@ -550,7 +550,7 @@ export class Game {
   _updateStageClear(dt) {
     this.world3d.step(dt);
     this.lane.update(dt);
-    this.hoop.update(dt);
+    this.hoop.update(dt, this.balls);
 
     const done = this.screens.updateStageClear(dt);
     if (done) {
