@@ -555,28 +555,93 @@ export class Game {
     const startX = screen.x;
     const startY = screen.y;
 
-    // Arrow showing throw direction
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
+    const power = Math.min(Math.abs(delta.dy) / (this.canvas.height * 0.55), 1);
+    const hot = power > 0.55;
+    const aimColor = hot ? COLORS.secondary : COLORS.primary;
+
+    // ── Aim arrow — long, thick, with an arrowhead ─────────────────────
+    const tipX = startX + delta.dx * 0.9;
+    const tipY = startY + delta.dy * 0.9;
+
+    ctx.save();
+    ctx.shadowColor = aimColor;
+    ctx.shadowBlur = 14;
+    ctx.strokeStyle = aimColor;
+    ctx.fillStyle = aimColor;
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Shaft
     ctx.beginPath();
     ctx.moveTo(startX, startY);
-    ctx.lineTo(startX + delta.dx * 0.3, startY + delta.dy * 0.3);
+    ctx.lineTo(tipX, tipY);
     ctx.stroke();
-    ctx.setLineDash([]);
 
-    // Power indicator
-    const power = Math.abs(delta.dy) / this.canvas.height;
-    const barWidth = 4;
-    const barHeight = 60;
-    const barX = startX + 40;
-    const barY = startY - barHeight;
+    // Arrowhead
+    const ang = Math.atan2(tipY - startY, tipX - startX);
+    const headLen = 26;
+    const headWide = Math.PI / 7;
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - Math.cos(ang - headWide) * headLen, tipY - Math.sin(ang - headWide) * headLen);
+    ctx.lineTo(tipX - Math.cos(ang + headWide) * headLen, tipY - Math.sin(ang + headWide) * headLen);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
 
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.fillRect(barX, barY, barWidth, barHeight);
+    // ── Power meter — fixed, right edge, large vertical bar ────────────
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const barH = Math.min(h * 0.5, 360);
+    const barW = 22;
+    const barX = w - barW - 26;
+    const barY = (h - barH) / 2;
 
-    const fillHeight = barHeight * Math.min(power * 2, 1);
-    ctx.fillStyle = power > 0.4 ? COLORS.secondary : COLORS.primary;
-    ctx.fillRect(barX, barY + barHeight - fillHeight, barWidth, fillHeight);
+    // Track
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 14, 26, 0.7)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 2;
+    this.screens._roundRect(ctx, barX, barY, barW, barH, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // Fill
+    const fillH = barH * power;
+    const grad = ctx.createLinearGradient(0, barY + barH, 0, barY);
+    grad.addColorStop(0, COLORS.primary);
+    grad.addColorStop(0.55, '#ffd34d');
+    grad.addColorStop(1, COLORS.secondary);
+    ctx.fillStyle = grad;
+    ctx.shadowColor = aimColor;
+    ctx.shadowBlur = 16;
+    this.screens._roundRect(ctx, barX + 2, barY + barH - fillH + 2, barW - 4, Math.max(0, fillH - 4), 4);
+    ctx.fill();
+    ctx.restore();
+
+    // Sweet-spot tick marks
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1.5;
+    for (const t of [0.25, 0.5, 0.75]) {
+      const ty = barY + barH - barH * t;
+      ctx.beginPath();
+      ctx.moveTo(barX - 6, ty);
+      ctx.lineTo(barX, ty);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Label
+    ctx.save();
+    ctx.fillStyle = aimColor;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('POWER', barX + barW / 2, barY - 12);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`${Math.round(power * 100)}%`, barX + barW / 2, barY + barH + 22);
+    ctx.restore();
   }
 }

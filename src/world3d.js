@@ -10,11 +10,11 @@ export const COURT = {
   rimTube: 0.012,
   backboardSize: { w: 1.83, h: 1.07, d: 0.04 },
   backboardOffset: 0.15 + 0.225,            // rim front to backboard face
-  ballRadius: 0.121,                        // size 7 basketball
+  ballRadius: 0.155,                        // slightly oversized for visual presence
   ballMass: 0.62,
   cameraPos: new THREE.Vector3(0, 2.0, 4.6),
   cameraLookAt: new THREE.Vector3(0, 3.05, -3),
-  ballSpawn: new THREE.Vector3(0, 1.55, 3.0),
+  ballSpawn: new THREE.Vector3(0, 1.6, 3.0),
   floorY: 0,
 };
 
