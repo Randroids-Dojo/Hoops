@@ -166,6 +166,22 @@ export class Screens {
     return { x: w / 2 - 60, y: h * 0.82, w: 120, h: 30 };
   }
 
+  getRestartButtonRect(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const btnW = Math.min(w * 0.55, 220);
+    const btnH = 48;
+    return { x: w / 2 - btnW / 2, y: h * 0.76, w: btnW, h: btnH };
+  }
+
+  getTitleLinkRect(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const btnW = Math.min(w * 0.4, 160);
+    const btnH = 30;
+    return { x: w / 2 - btnW / 2, y: h * 0.86, w: btnW, h: btnH };
+  }
+
   // --- Render methods ---
 
   renderTitle(ctx, canvas, bestScore) {
@@ -287,19 +303,28 @@ export class Screens {
       ctx.fillText(`GLOBAL RANK: #${globalRank}`, w / 2, h * 0.67);
     }
 
-    // Restart prompt
-    const promptAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
-    ctx.globalAlpha = promptAlpha;
-    ctx.fillStyle = COLORS.white;
-    ctx.font = 'bold 20px monospace';
-    const isMobile = 'ontouchstart' in window;
-    ctx.fillText(isMobile ? 'TAP TO RESTART' : 'CLICK TO RESTART', w / 2, h * 0.78);
-    ctx.globalAlpha = 1;
+    // RESTART button
+    const btn = this.getRestartButtonRect(canvas);
+    const pulse = 0.85 + Math.sin(Date.now() * 0.004) * 0.15;
+    ctx.fillStyle = `rgba(0, 255, 65, ${0.18 * pulse})`;
+    ctx.strokeStyle = COLORS.scoreGreen;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = COLORS.scoreGreen;
+    ctx.shadowBlur = 14 * pulse;
+    this._roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // View leaderboard hint
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillStyle = COLORS.scoreGreen;
+    ctx.font = 'bold 22px monospace';
+    ctx.fillText('RESTART', w / 2, btn.y + btn.h / 2 + 8);
+
+    // Back-to-title link
+    const link = this.getTitleLinkRect(canvas);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.font = '14px monospace';
-    ctx.fillText('Press L to view leaderboard', w / 2, h * 0.88);
+    ctx.fillText('BACK TO TITLE', w / 2, link.y + link.h / 2 + 5);
 
     ctx.restore();
   }

@@ -116,7 +116,7 @@ export class Game {
       if (this.state === 'title') {
         this._handleTitleTap(x, y);
       } else if (this.state === 'gameOver') {
-        this.returnToTitle();
+        this._handleGameOverTap(x, y);
       } else if (this.state === 'paused') {
         this.togglePause();
       } else if (this.state === 'nameEntry') {
@@ -174,6 +174,19 @@ export class Game {
     }
     // Otherwise start game
     this.startGame();
+  }
+
+  _handleGameOverTap(x, y) {
+    const restartBtn = this.screens.getRestartButtonRect(this.canvas);
+    if (this.screens._hitTest(x, y, restartBtn)) {
+      this.audio.playClick();
+      this.startGame();
+      return;
+    }
+    const titleBtn = this.screens.getTitleLinkRect(this.canvas);
+    if (this.screens._hitTest(x, y, titleBtn)) {
+      this.returnToTitle();
+    }
   }
 
   // --- Name entry ---
