@@ -193,29 +193,6 @@ export class Screens {
     ctx.font = `${Math.min(w * 0.035, 20)}px monospace`;
     ctx.fillText('ARCADE BASKETBALL', w / 2, titleY + 40);
 
-    // Bouncing ball icon
-    const ballY = h * 0.48 + Math.abs(Math.sin(this.titleBouncePhase)) * 20;
-    ctx.fillStyle = COLORS.basketball;
-    ctx.beginPath();
-    ctx.arc(w / 2, ballY, 18, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Ball seams
-    ctx.strokeStyle = COLORS.seamBlack;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.ellipse(w / 2, ballY, 18, 3, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(w / 2, ballY, 3, 18, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Ball shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath();
-    ctx.ellipse(w / 2, h * 0.48 + 30, 14, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-
     // Tap to play prompt (pulsing)
     const promptAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
     ctx.globalAlpha = promptAlpha;
