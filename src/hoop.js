@@ -367,8 +367,8 @@ export class Hoop {
       }
     }
 
-    // Constraint relaxation + ball collision, a few Gauss-Seidel passes.
-    const iters = 4;
+    // Constraint relaxation + ball collision, several Gauss-Seidel passes.
+    const iters = 6;
     for (let it = 0; it < iters; it++) {
       for (const c of this._netConstraints) {
         const pa = this._netParticles[c.a];
@@ -378,7 +378,6 @@ export class Hoop {
         const dz = pb.z - pa.z;
         const dist = Math.hypot(dx, dy, dz);
         if (dist < 1e-6) continue;
-        // Net is taut downward but stretchy outward — clamp ratio.
         const diff = (dist - c.len) / dist * 0.5;
         const ox = dx * diff, oy = dy * diff, oz = dz * diff;
         if (!pa.pinned) { pa.x += ox; pa.y += oy; pa.z += oz; }
@@ -403,6 +402,16 @@ export class Hoop {
           }
         }
       }
+    }
+
+    // Hard safety: the rim is a ceiling for the net. Without this, an unlucky
+    // dt spike or a ball entering from below can flip the cloth above the rim,
+    // and there's no force in the sim to pull it back down once it's there.
+    // Leaving p.py intact preserves downward velocity for snappy recovery.
+    for (let i = 0; i < this._netParticles.length; i++) {
+      const p = this._netParticles[i];
+      if (p.pinned) continue;
+      if (p.y > 0) p.y = 0;
     }
 
     // Gentle ambient sway when no ball is interacting — keeps the net alive.
