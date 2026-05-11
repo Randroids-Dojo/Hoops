@@ -653,11 +653,13 @@ export class Game {
     // Analytical outcome: find when the ball would re-cross the rim plane on
     // descent. y(t) = y0 + vy·t − ½·g·t² = rimY  ⇒ two roots; take the larger.
     let outcome = 'miss';
+    let landing = null;
     const disc = v.vy * v.vy - 2 * g * (rimY - spawn.y);
     if (disc > 0) {
       const tCross = (v.vy + Math.sqrt(disc)) / g;
       const xAt = spawn.x + v.vx * tCross;
       const zAt = spawn.z + v.vz * tCross;
+      landing = new THREE.Vector3(xAt, rimY, zAt);
       const horizErr = Math.hypot(xAt - rimX, zAt - rimZ);
       // Clean-pass clearance: rim_R − ball_R − tube_R − safety. Anything
       // tighter than that and the ball clears without touching the rim.
@@ -665,66 +667,32 @@ export class Game {
       if (horizErr < swishMax) outcome = 'swish';
       else if (horizErr < rimR * 0.95) outcome = 'rim';
     }
-
-    // Visible arc samples — analytical, up to 70% of time-to-apex.
-    const apexT = Math.max(0, v.vy / g);
-    const visEnd = apexT * 0.7;
-    const N = 20;
-    const samples = [];
-    for (let i = 0; i <= N; i++) {
-      const t = (i / N) * visEnd;
-      samples.push(new THREE.Vector3(
-        spawn.x + v.vx * t,
-        spawn.y + v.vy * t - 0.5 * g * t * t,
-        spawn.z + v.vz * t,
-      ));
+    if (!landing) {
+      // No valid trajectory — synthesize a fallback landing point ahead of
+      // the ball so the drag indicator still has something to draw at.
+      landing = new THREE.Vector3(spawn.x, rimY, rimZ);
     }
-    return { samples, outcome, norm };
+
+    return { landing, outcome, norm };
   }
 
   _renderDragIndicator(ctx) {
     const delta = this.input.getDragDelta();
     if (delta.dy >= 0) return; // only show for upward drags
 
-    const screen = this.activeBall.getScreenPos();
-    const startX = screen.x;
-    const startY = screen.y;
-
+    const start = this.activeBall.getScreenPos();
     const pred = this._predictShot(delta);
     const power = pred.norm;
     const outcomeColors = { swish: COLORS.scoreGreen, rim: '#FFCC00', miss: '#FF4D4D' };
     const arcColor = outcomeColors[pred.outcome];
 
-    // ── Predictive arc — short, fades before apex ──────────────────────
-    this._renderArcPreview(ctx, pred, arcColor);
-
-    // ── Aim arrow — long, thick, with arrowhead. Tinted by outcome. ────
-    const tipX = startX + delta.dx * 0.9;
-    const tipY = startY + delta.dy * 0.9;
-
-    ctx.save();
-    ctx.shadowColor = arcColor;
-    ctx.shadowBlur = 14;
-    ctx.strokeStyle = arcColor;
-    ctx.fillStyle = arcColor;
-    ctx.lineWidth = 7;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(tipX, tipY);
-    ctx.stroke();
-
-    const ang = Math.atan2(tipY - startY, tipX - startX);
-    const headLen = 26;
-    const headWide = Math.PI / 7;
-    ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(tipX - Math.cos(ang - headWide) * headLen, tipY - Math.sin(ang - headWide) * headLen);
-    ctx.lineTo(tipX - Math.cos(ang + headWide) * headLen, tipY - Math.sin(ang + headWide) * headLen);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+    // ── Predicted trajectory — single screen-space arc from the ball to
+    // where the ball will cross the rim plane. Color-coded by outcome,
+    // with a target reticle at the landing point. The arc is drawn as a
+    // quadratic Bezier in screen space so the curvature reads clearly
+    // even though the actual 3D parabola foreshortens to nearly a line.
+    const landing = this.world3d.projectToScreen(pred.landing);
+    this._renderTrajectoryArc(ctx, start, landing, arcColor, pred.outcome);
 
     // ── Power meter with sweet-spot zone ───────────────────────────────
     const w = this.canvas.width;
@@ -800,30 +768,82 @@ export class Game {
     ctx.restore();
   }
 
-  _renderArcPreview(ctx, pred, color) {
-    const { samples } = pred;
-    if (samples.length < 4) return;
+  _renderTrajectoryArc(ctx, start, landing, color, outcome) {
+    // Quadratic Bezier with the control point lifted above and to the side
+    // of the chord. A pure vertical lift would project to a straight line
+    // for centered aim, so we always offset horizontally as well so the
+    // arc has a clearly visible "rainbow" bend.
+    const mx = (start.x + landing.x) / 2;
+    const my = (start.y + landing.y) / 2;
+    const dx = landing.x - start.x;
+    const dy = landing.y - start.y;
+    const dist = Math.hypot(dx, dy);
+    const arcLift = Math.min(dist * 0.34, 240);
+    // Side-bulge direction: perpendicular to the chord, pointing right of
+    // the player's forward direction. For a near-vertical chord, this is
+    // essentially +X (right). For a sideways chord, it stays "above" it.
+    const perpX = -dy / Math.max(dist, 1);
+    const sideBulge = Math.min(dist * 0.18, 70);
+    const cx = mx + perpX * sideBulge;
+    const cy = my - arcLift;
 
-    const projected = samples.map((s) => this.world3d.projectToScreen(s));
-    if (projected.length < 2) return;
+    // Build a path of small segments along the curve so we can fade the
+    // alpha along its length — gives the trajectory a clearer launch end
+    // and softer landing.
+    const N = 28;
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const omt = 1 - t;
+      pts.push({
+        x: omt * omt * start.x + 2 * omt * t * cx + t * t * landing.x,
+        y: omt * omt * start.y + 2 * omt * t * cy + t * t * landing.y,
+      });
+    }
 
     ctx.save();
     ctx.lineCap = 'round';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 6;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 14;
 
-    // Draw as a series of fading dashed segments
-    for (let i = 1; i < projected.length; i++) {
-      const t = i / (projected.length - 1);
-      const alpha = (1 - t) * 0.85;
-      if (alpha <= 0.05) continue;
+    for (let i = 1; i < pts.length; i++) {
+      const t = i / N;
+      const alpha = 0.35 + 0.55 * (1 - t);  // brighter near the ball
       ctx.strokeStyle = withAlpha(color, alpha);
       ctx.beginPath();
-      ctx.moveTo(projected[i - 1].x, projected[i - 1].y);
-      ctx.lineTo(projected[i].x, projected[i].y);
+      ctx.moveTo(pts[i - 1].x, pts[i - 1].y);
+      ctx.lineTo(pts[i].x, pts[i].y);
       ctx.stroke();
     }
+
+    // Landing reticle — small ring + dot at the predicted landing point.
+    const reticleR = outcome === 'swish' ? 18 : 14;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.fillStyle = withAlpha(color, 0.25);
+    ctx.beginPath();
+    ctx.arc(landing.x, landing.y, reticleR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(landing.x, landing.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crosshair tick marks for the reticle so it reads as a target.
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(landing.x - reticleR - 4, landing.y);
+    ctx.lineTo(landing.x - reticleR + 2, landing.y);
+    ctx.moveTo(landing.x + reticleR - 2, landing.y);
+    ctx.lineTo(landing.x + reticleR + 4, landing.y);
+    ctx.moveTo(landing.x, landing.y - reticleR - 4);
+    ctx.lineTo(landing.x, landing.y - reticleR + 2);
+    ctx.moveTo(landing.x, landing.y + reticleR - 2);
+    ctx.lineTo(landing.x, landing.y + reticleR + 4);
+    ctx.stroke();
+
     ctx.restore();
   }
 }
