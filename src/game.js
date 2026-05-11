@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { COLORS, clamp, MIN_THROW_SPEED, MAX_THROW_SPEED } from './utils.js';
-import { Ball, launchVector, MIN_SPEED_MS, MAX_SPEED_MS } from './ball.js';
+import { Ball, launchVector } from './ball.js';
 import { Hoop } from './hoop.js';
 import { Lane } from './lane.js';
 import { COURT } from './world3d.js';
@@ -16,6 +16,15 @@ import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 
 const BALL_POOL_SIZE = 5;
+
+// How much the oscillating power meter can shift the drag-chosen power at
+// release. 0 = meter does nothing (drag controls all); 1 = meter swings the
+// final power by ±0.5 of the full range. ±0.25 of range feels like a real
+// "timing adjustment" without overpowering the drag aim.
+const METER_ADJUST_SCALE = 0.5;
+// The meter's "PERFECT" mark sits at the center of the bar — releasing
+// there means no adjustment to the drag-aim.
+const METER_PERFECT_NORM = 0.5;
 
 export class Game {
   constructor(canvas, ctx, world3d) {
@@ -130,12 +139,19 @@ export class Game {
   }
 
   _setupInput() {
-    this.input.onThrow = (_inputPower, lateralAngle) => {
+    this.input.onThrow = (dragPowerNorm, lateralAngle) => {
       if (this.state === 'playing' && !this.activeBall.active) {
-        // Power comes from the oscillating meter at the moment of release,
-        // not from the drag distance. Drag only controls lateral aim.
-        const norm = this._currentMeterPower();
-        const launchPower = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
+        // Two interacting skills:
+        //   - drag length sets the *intended* power (size of the arc)
+        //   - meter timing nudges the actual delivered power up or down
+        // Meter centered (~0.5) = perfect timing = no adjustment. Top of
+        // the meter over-delivers (sends the ball further), bottom under-
+        // delivers. Over-aim + early release can compensate, and vice
+        // versa — two dimensions the player feels out.
+        const meterNorm = this._currentMeterPower();
+        const adjust = (meterNorm - 0.5) * METER_ADJUST_SCALE;
+        const finalNorm = clamp(dragPowerNorm + adjust, 0, 1);
+        const launchPower = MIN_THROW_SPEED + finalNorm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
         this.activeBall.setStreakLevel(this.scoring.getStreakLevel());
         this.activeBall.throwBall(launchPower, lateralAngle);
         this.audio.playThrow();
@@ -448,9 +464,12 @@ export class Game {
   }
 
   _updatePlaying(dt) {
-    this.world3d.step(dt);
+    // Hoop.update() moves its kinematic rim/backboard bodies via
+    // _reposition(); it must run before the physics step so collisions
+    // resolve against the current frame's pose (matters on moving stages).
     this.lane.update(dt);
     this.hoop.update(dt, this.balls);
+    this.world3d.step(dt);
     for (const b of this.balls) b.update(dt);
 
     // Advance the oscillating power meter so it sweeps 0→1→0 sinusoidally.
@@ -581,9 +600,11 @@ export class Game {
   }
 
   _updateStageClear(dt) {
-    this.world3d.step(dt);
+    // Same ordering rule as _updatePlaying: kinematic hoop bodies update
+    // before the physics step.
     this.lane.update(dt);
     this.hoop.update(dt, this.balls);
+    this.world3d.step(dt);
 
     const done = this.screens.updateStageClear(dt);
     if (done) {
@@ -659,29 +680,13 @@ export class Game {
     }
   }
 
-  // Solve for the launch speed that puts the ball in the rim at a 55° arc,
-  // then convert to a [0..1] power-meter fraction. Tracks moving hoops live.
-  // Speed-range constants come from ball.js so the meter and the actual
-  // launch always agree.
-  _perfectShotNorm() {
-    const spawn = COURT.ballSpawn;
-    const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
-    const R = Math.sqrt((spawn.x - rimX) ** 2 + (spawn.z - COURT.rim.z) ** 2);
-    const h = COURT.rim.y - spawn.y;
-    const theta = 55 * Math.PI / 180;
-    const denom = 2 * Math.cos(theta) ** 2 * (R * Math.tan(theta) - h);
-    if (denom <= 0) return 0.5;
-    const v0 = Math.sqrt((9.82 * R * R) / denom);
-    return clamp((v0 - MIN_SPEED_MS) / (MAX_SPEED_MS - MIN_SPEED_MS), 0.05, 0.95);
-  }
-
-  // Predict the shot analytically (exact ballistic solution) at the PERFECT
-  // launch power for the current aim. The arc + reticle are a pure aim
-  // indicator: they don't move with the meter. Player aims so the reticle
-  // is on the rim, then times release to hit PERFECT on the meter — both
-  // skills are independent, both need to land for a swish.
+  // Predict the shot analytically for the player's *current drag*. The
+  // arc + reticle grow with drag length and tilt with lateral motion, so
+  // the player sees their aim take shape in real time. Meter timing is
+  // applied separately at release — this preview assumes a perfect-meter
+  // (neutral) release.
   _predictShot(delta) {
-    const norm = this._perfectShotNorm();
+    const norm = this.input.getDragPowerNorm();
     const power = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
     const lateralAngle = delta.dx / Math.max(Math.abs(delta.dy), 1);
     const v = launchVector(power, lateralAngle);
@@ -720,13 +725,14 @@ export class Game {
   }
 
   // Live, always-on power meter. The sweep ticks across the bar regardless
-  // of whether the player is currently dragging — the shot fires at
-  // whatever value the meter shows at the moment of release.
+  // of whether the player is currently dragging. PERFECT sits at the
+  // center (0.5) — releasing there means the meter doesn't adjust the
+  // drag-chosen power. Above center over-delivers; below under-delivers.
   _renderPowerMeter(ctx) {
     const w = this.canvas.width;
     const h = this.canvas.height;
     const power = this._currentMeterPower();
-    const sweet = this._perfectShotNorm();
+    const sweet = METER_PERFECT_NORM;
     const sweetBand = 0.06;
     const inSweet = Math.abs(power - sweet) < sweetBand;
     const trackColor = inSweet ? COLORS.scoreGreen : COLORS.primary;
