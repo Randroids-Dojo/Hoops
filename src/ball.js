@@ -111,7 +111,7 @@ export class Ball {
     this.lastRimContactTime = -10;        // for swish detection — rim only
     this.lastBackboardContactTime = -10;  // tracked separately so banks
                                           // don't mark rimHit
-    this.sensorEntered = false;           // hoop scoring sensor state
+    this.sensorEntered = false;           // armed by hoop's above-rim scoring gate
     this.reportedRim = false;
 
     this.reset();

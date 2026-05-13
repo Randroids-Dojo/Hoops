@@ -520,6 +520,7 @@ export class Hoop {
     const cz = this.rimCenter.z;
 
     const p = ball.body.position;
+    const prev = ball.body.previousPosition || p;
     const dx = p.x - cx;
     const dz = p.z - cz;
     const horiz = Math.sqrt(dx * dx + dz * dz);
@@ -531,24 +532,37 @@ export class Hoop {
       ball.rimHit = true;
     }
 
-    // The scoring cylinder is the rim's actual clear opening, not the rim
-    // radius — a ball that's still grazing the iron shouldn't count.
-    const clearRadius = this.rimRadius - COURT.rimTube - COURT.ballRadius;
-    const inCylinder = horiz < clearRadius + 0.01;
-    const above = p.y > cy + COURT.ballRadius * 0.5;
-    const below = p.y < cy - COURT.ballRadius * 0.4;
+    // Ordered scoring gates inside the visible rim. A shot is armed only after
+    // it enters the above-rim shaft while descending, then it scores after
+    // crossing the lower net gate. This keeps net-only hits from below out.
+    const scoreRadius = this.rimRadius - COURT.rimTube - COURT.ballRadius * 0.35;
+    const inCylinder = horiz < scoreRadius;
     const descending = ball.body.velocity.y < 0;
 
-    if (inCylinder && above && descending) {
+    const crossedGateInCylinder = (gateY, radius = scoreRadius) => {
+      if (!descending || prev.y < gateY || p.y > gateY || prev.y === p.y) return false;
+      const t = (gateY - prev.y) / (p.y - prev.y);
+      const crossX = prev.x + (p.x - prev.x) * t;
+      const crossZ = prev.z + (p.z - prev.z) * t;
+      return Math.hypot(crossX - cx, crossZ - cz) < radius;
+    };
+
+    const entryGateY = cy + COURT.ballRadius * 0.35;
+    const exitGateY = cy - COURT.ballRadius * 0.9;
+    const inAboveRimShaft = inCylinder && p.y >= cy && descending;
+    const crossedEntryGate = crossedGateInCylinder(entryGateY);
+    const crossedExitGate = crossedGateInCylinder(exitGateY);
+
+    if (crossedEntryGate || inAboveRimShaft) {
       ball.sensorEntered = true;
     }
 
     let result = null;
-    if (ball.sensorEntered && inCylinder && below) {
+    if (ball.sensorEntered && crossedExitGate) {
       result = ball.rimHit ? 'score' : 'swish';
       ball.sensorEntered = false;
       this.triggerNetRipple();
-    } else if (ball.sensorEntered && !inCylinder && p.y < cy) {
+    } else if (ball.sensorEntered && ((!inCylinder && p.y < cy) || !descending)) {
       ball.sensorEntered = false;
     }
 
