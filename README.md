@@ -18,28 +18,6 @@ npm run dev      # Vercel dev server
 npm run start    # Local static server
 ```
 
-## VibeKit
-
-The optional `/api/vibekit` endpoint lets maintainers run VibeKit commands in an
-E2B sandbox. It is disabled unless the VibeKit environment variables are set and
-requires `Authorization: Bearer $VIBEKIT_ADMIN_TOKEN`.
-
-Required variables:
-
-- `VIBEKIT_ADMIN_TOKEN`
-- `E2B_API_KEY`
-- `VIBEKIT_MODEL`
-- `VIBEKIT_AGENT_API_KEY` or the provider-specific key, such as `OPENAI_API_KEY`
-
-Example:
-
-```bash
-curl -X POST "$APP_URL/api/vibekit" \
-  -H "Authorization: Bearer $VIBEKIT_ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"command":"node --version"}'
-```
-
 ## Deployment
 
 Auto-deploys to Vercel on push to `main`.

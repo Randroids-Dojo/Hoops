@@ -9,13 +9,7 @@
   },
   "dependencies": {
     "@upstash/redis": "^1.37.0",
-    "@vibe-kit/e2b": "^0.0.5",
-    "@vibe-kit/sdk": "^0.0.70",
     "cannon-es": "^0.20.0",
     "three": "^0.160.0"
-  },
-  "overrides": {
-    "next": "16.2.6",
-    "postcss": "8.5.14"
   }
 }
