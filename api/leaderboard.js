@@ -48,6 +48,20 @@ function sanitizeName(name) {
     .slice(0, NAME_MAX_LEN) || 'AAA';
 }
 
+function sanitizeMeta(meta, mode) {
+  if (mode !== 'distance' || !meta || typeof meta !== 'object') return {};
+  return {
+    makes: clampInt(meta.makes, 0, 999),
+    shots: clampInt(meta.shots, 0, 999),
+  };
+}
+
+function clampInt(value, min, max) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
 export default async function handler(req, res) {
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -111,10 +125,11 @@ async function handlePost(req, res) {
   }
 
   const cleanName = sanitizeName(name);
+  const cleanMeta = sanitizeMeta(meta, config.mode);
   const date = new Date().toISOString();
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const member = JSON.stringify({ name: cleanName, stage, date, id, mode: config.mode, meta });
+  const member = JSON.stringify({ name: cleanName, stage, date, id, mode: config.mode, meta: cleanMeta });
 
   await kv.zadd(config.key, { score, member });
 

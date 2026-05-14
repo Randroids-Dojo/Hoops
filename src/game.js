@@ -83,6 +83,7 @@ export class Game {
     this.globalRank = null; // rank from last submission
     this.gameMode = GAME_MODE.CLASSIC;
     this.distanceRun = null;
+    this.submittingName = false;
 
     this._setupInput();
     this._setupKeyboard();
@@ -336,30 +337,36 @@ export class Game {
   }
 
   async _submitName() {
-    const name = this.screens.getEnteredName();
-    this.audio.playClick();
-    this.leaderboard.saveName(name);
+    if (this.submittingName) return;
+    this.submittingName = true;
+    try {
+      const name = this.screens.getEnteredName();
+      this.audio.playClick();
+      this.leaderboard.saveName(name);
 
-    const result = this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win'
-      ? await this.leaderboard.submitScore(
-        name,
-        this.distanceRun.winTimeMs,
-        1,
-        GAME_MODE.DISTANCE,
-        { makes: this.distanceRun.makes, shots: this.distanceRun.shots },
-      )
-      : await this.leaderboard.submitScore(
-        name,
-        this.scoring.totalScore,
-        this.scoring.stageNum,
-        GAME_MODE.CLASSIC,
-      );
+      const result = this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win'
+        ? await this.leaderboard.submitScore(
+          name,
+          this.distanceRun.winTimeMs,
+          1,
+          GAME_MODE.DISTANCE,
+          { makes: this.distanceRun.makes, shots: this.distanceRun.shots },
+        )
+        : await this.leaderboard.submitScore(
+          name,
+          this.scoring.totalScore,
+          this.scoring.stageNum,
+          GAME_MODE.CLASSIC,
+        );
 
-    if (result && result.rank) {
-      this.globalRank = result.rank;
+      if (result && result.rank) {
+        this.globalRank = result.rank;
+      }
+
+      this.state = 'gameOver';
+    } finally {
+      this.submittingName = false;
     }
-
-    this.state = 'gameOver';
   }
 
   _skipNameEntry() {
@@ -431,14 +438,7 @@ export class Game {
   _quitToTitle() {
     this.audio.playClick();
     hideFab();
-    this.state = 'title';
-    this.previousState = null;
-    this.gameMode = GAME_MODE.CLASSIC;
-    this.distanceRun = null;
-    this.hoop.setDepthOffset(0);
-    this.hoop.setMovement(0, 0);
-    this._resetBallPool();
-    this.particles.clear();
+    this._resetToTitle();
   }
 
   _handleLeaderboardTap(x, y) {
@@ -480,6 +480,7 @@ export class Game {
     this.particles.clear();
     this.hud.notifications = [];
     this.globalRank = null;
+    this.submittingName = false;
 
     this.hoop.setDepthOffset(this.distanceRun?.offsetZ || 0);
     this.hoop.setMovement(
@@ -509,9 +510,16 @@ export class Game {
 
   returnToTitle() {
     this.audio.playClick();
+    this._resetToTitle();
+  }
+
+  _resetToTitle() {
     this.state = 'title';
+    this.previousState = null;
     this.gameMode = GAME_MODE.CLASSIC;
     this.distanceRun = null;
+    this.globalRank = null;
+    this.submittingName = false;
     this.hoop.setDepthOffset(0);
     this.hoop.setMovement(0, 0);
     this._resetBallPool();
@@ -772,6 +780,7 @@ export class Game {
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
     this.globalRank = null;
+    this.submittingName = false;
   }
 
   _onDistanceLoss() {
@@ -918,7 +927,7 @@ export class Game {
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '14px monospace';
-    ctx.fillText('MAKES', w - padding, padding + 14);
+    ctx.fillText('MADE', w - padding, padding + 14);
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.font = 'bold 28px monospace';
     ctx.fillText(`${run.makes}/${run.shots}`, w - padding, padding + 44);
@@ -938,6 +947,9 @@ export class Game {
     ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(run.progress * 100)}%`, w / 2, meterY + 28);
+    ctx.textAlign = 'left';
     ctx.fillText('START', meterX, meterY + 28);
     ctx.textAlign = 'right';
     ctx.fillText('WIN', meterX + meterW, meterY + 28);
