@@ -30,12 +30,18 @@ const METER_PERFECT_NORM = 0.7;
 const GAME_MODE = {
   CLASSIC: 'classic',
   DISTANCE: 'distance',
+  ENDLESS: 'endless',
 };
 const DISTANCE_MODE = {
   scoreStepZ: -0.18,
   missStepZ: 0.14,
   winOffsetZ: -0.9,
   loseOffsetZ: 0.42,
+};
+const ENDLESS_MODE = {
+  startTime: 18,
+  scoreBonus: 4,
+  swishBonus: 6,
 };
 
 export class Game {
@@ -83,6 +89,7 @@ export class Game {
     this.globalRank = null; // rank from last submission
     this.gameMode = GAME_MODE.CLASSIC;
     this.distanceRun = null;
+    this.endlessRun = null;
     this.submittingName = false;
 
     this._setupInput();
@@ -243,7 +250,15 @@ export class Game {
       this._openLeaderboard(GAME_MODE.DISTANCE);
       return;
     }
+    if (this.screens._hitTest(x, y, boardBtns.endless)) {
+      this._openLeaderboard(GAME_MODE.ENDLESS);
+      return;
+    }
     const modes = this.screens.getTitleModeRects(this.canvas);
+    if (this.screens._hitTest(x, y, modes.endless)) {
+      this.startGame(GAME_MODE.ENDLESS);
+      return;
+    }
     if (this.screens._hitTest(x, y, modes.distance)) {
       this.startGame(GAME_MODE.DISTANCE);
       return;
@@ -344,20 +359,31 @@ export class Game {
       this.audio.playClick();
       this.leaderboard.saveName(name);
 
-      const result = this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win'
-        ? await this.leaderboard.submitScore(
+      let result;
+      if (this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win') {
+        result = await this.leaderboard.submitScore(
           name,
           this.distanceRun.winTimeMs,
           1,
           GAME_MODE.DISTANCE,
           { makes: this.distanceRun.makes, shots: this.distanceRun.shots },
-        )
-        : await this.leaderboard.submitScore(
+        );
+      } else if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
+        result = await this.leaderboard.submitScore(
+          name,
+          this.endlessRun.elapsedMs,
+          1,
+          GAME_MODE.ENDLESS,
+          { makes: this.endlessRun.makes, shots: this.endlessRun.shots, points: this.scoring.totalScore },
+        );
+      } else {
+        result = await this.leaderboard.submitScore(
           name,
           this.scoring.totalScore,
           this.scoring.stageNum,
           GAME_MODE.CLASSIC,
         );
+      }
 
       if (result && result.rank) {
         this.globalRank = result.rank;
@@ -476,6 +502,11 @@ export class Game {
     this.previousState = null;
     this.scoring.reset();
     this.distanceRun = mode === GAME_MODE.DISTANCE ? this._createDistanceRun() : null;
+    this.endlessRun = mode === GAME_MODE.ENDLESS ? this._createEndlessRun() : null;
+    if (this.endlessRun) {
+      this.scoring.timeRemaining = ENDLESS_MODE.startTime;
+      this.scoring.bonusTimeActive = false;
+    }
     this._resetBallPool();
     this.particles.clear();
     this.hud.notifications = [];
@@ -502,6 +533,16 @@ export class Game {
     };
   }
 
+  _createEndlessRun() {
+    return {
+      elapsed: 0,
+      elapsedMs: 0,
+      shots: 0,
+      makes: 0,
+      result: null,
+    };
+  }
+
   _resetBallPool() {
     for (const b of this.balls) b.retire();
     this.activeBallIdx = 0;
@@ -518,6 +559,7 @@ export class Game {
     this.previousState = null;
     this.gameMode = GAME_MODE.CLASSIC;
     this.distanceRun = null;
+    this.endlessRun = null;
     this.globalRank = null;
     this.submittingName = false;
     this.hoop.setDepthOffset(0);
@@ -624,6 +666,7 @@ export class Game {
     if (this.gameMode === GAME_MODE.DISTANCE) {
       this.distanceRun.elapsed += dt;
     } else {
+      if (this.gameMode === GAME_MODE.ENDLESS) this.endlessRun.elapsed += dt;
       timerResult = this.scoring.updateTimer(dt);
     }
 
@@ -676,7 +719,11 @@ export class Game {
     }
 
     // Check time's up
-    if (this.gameMode === GAME_MODE.CLASSIC && timerResult.timeUp && this.state === 'playing') {
+    if (timerResult.timeUp && this.state === 'playing') {
+      if (this.gameMode === GAME_MODE.ENDLESS) {
+        this._onEndlessTimeUp();
+        return;
+      }
       this._onTimeUp();
     }
   }
@@ -689,6 +736,10 @@ export class Game {
 
     if (this.gameMode === GAME_MODE.DISTANCE) {
       this._onDistanceScore(isSwish);
+      return;
+    }
+    if (this.gameMode === GAME_MODE.ENDLESS) {
+      this._onEndlessScore(isSwish);
       return;
     }
 
@@ -741,6 +792,23 @@ export class Game {
     }
   }
 
+  _onEndlessScore(isSwish) {
+    const result = this.scoring.scoreShot(isSwish);
+    const run = this.endlessRun;
+    const bonus = isSwish ? ENDLESS_MODE.swishBonus : ENDLESS_MODE.scoreBonus;
+    run.shots++;
+    run.makes++;
+    this.scoring.timeRemaining += bonus;
+
+    this.hoop.triggerNetRipple();
+    if (isSwish) this.audio.playSwish();
+    this.audio.playScore();
+    if (result.streakMilestone) this.audio.playStreakMilestone();
+    for (const text of result.notifications) this.hud.addNotification(text);
+    this.hud.addNotification(`+${bonus}s`, 0.75);
+    this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
+  }
+
   _onMiss(ball) {
     if (!ball.active || !ball.missed) return;
     ball.active = false;
@@ -759,6 +827,8 @@ export class Game {
         this.hud.addNotification('CLOSER', 0.8);
         this.hoop.setDepthOffset(run.offsetZ);
       }
+    } else if (this.gameMode === GAME_MODE.ENDLESS) {
+      this.endlessRun.shots++;
     }
   }
 
@@ -790,6 +860,19 @@ export class Game {
     this.screens.startFlash();
     this._resetBallPool();
     this.state = 'gameOver';
+  }
+
+  _onEndlessTimeUp() {
+    const run = this.endlessRun;
+    run.result = 'timeup';
+    run.elapsedMs = Math.round(run.elapsed * 1000);
+    this.audio.playTimeUp();
+    this.screens.startFlash();
+    this._resetBallPool();
+    this.state = 'nameEntry';
+    this.screens.initNameEntry(this.leaderboard.playerName);
+    this.globalRank = null;
+    this.submittingName = false;
   }
 
   _onStageClear() {
@@ -849,6 +932,8 @@ export class Game {
       this.particles.render(ctx);
       if (this.gameMode === GAME_MODE.DISTANCE) {
         this._renderDistanceHud(ctx);
+      } else if (this.gameMode === GAME_MODE.ENDLESS) {
+        this._renderEndlessHud(ctx);
       } else {
         this.hud.render(ctx, canvas, this.scoring);
       }
@@ -882,13 +967,27 @@ export class Game {
 
     if (this.state === 'nameEntry') {
       this.particles.render(ctx);
-      this.screens.renderNameEntry(ctx, canvas, this.scoring.totalScore, this.scoring.stageNum, this.distanceRun?.result === 'win' ? this.distanceRun : null);
+      this.screens.renderNameEntry(
+        ctx,
+        canvas,
+        this.scoring.totalScore,
+        this.scoring.stageNum,
+        this.distanceRun?.result === 'win' ? this.distanceRun : null,
+        this.endlessRun?.result === 'timeup' ? this.endlessRun : null,
+      );
       return;
     }
 
     if (this.state === 'gameOver') {
       this.particles.render(ctx);
-      this.screens.renderGameOver(ctx, canvas, this.scoring, this.globalRank, this.gameMode === GAME_MODE.DISTANCE ? this.distanceRun : null);
+      this.screens.renderGameOver(
+        ctx,
+        canvas,
+        this.scoring,
+        this.globalRank,
+        this.gameMode === GAME_MODE.DISTANCE ? this.distanceRun : null,
+        this.gameMode === GAME_MODE.ENDLESS ? this.endlessRun : null,
+      );
       return;
     }
 
@@ -966,6 +1065,53 @@ export class Game {
       ctx.fillText('STREAK', w - padding, h * 0.45 - 22);
       ctx.restore();
     }
+
+    this.hud._renderNotifications(ctx, w, h);
+  }
+
+  _renderEndlessHud(ctx) {
+    const { canvas } = this;
+    const w = canvas.width;
+    const h = canvas.height;
+    const padding = 20;
+    const run = this.endlessRun;
+
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '14px monospace';
+    ctx.fillText('MODE', padding, padding + 14);
+    ctx.fillStyle = COLORS.primary;
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText('ENDLESS', padding, padding + 42);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '14px monospace';
+    ctx.fillText('CLOCK', w / 2, padding + 14);
+    const timeColor = this.scoring.timeRemaining <= 10 ? COLORS.red : COLORS.white;
+    ctx.fillStyle = timeColor;
+    ctx.font = 'bold 32px monospace';
+    ctx.fillText(formatRunTime(Math.ceil(this.scoring.timeRemaining * 1000)), w / 2, padding + 48);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.42)';
+    ctx.font = '12px monospace';
+    ctx.fillText(`SURVIVED ${formatRunTime(Math.round(run.elapsed * 1000))}`, w / 2, padding + 70);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.scoreGreen;
+    ctx.shadowColor = COLORS.scoreGreen;
+    ctx.shadowBlur = 10;
+    ctx.font = 'bold 44px monospace';
+    ctx.fillText(`${run.makes}`, w / 2, h * 0.16);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
+    ctx.font = '12px monospace';
+    ctx.fillText('MAKES', w / 2, h * 0.12);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '14px monospace';
+    ctx.fillText(`POINTS: ${this.scoring.totalScore}`, w / 2, h * 0.19);
+    ctx.restore();
 
     this.hud._renderNotifications(ctx, w, h);
   }

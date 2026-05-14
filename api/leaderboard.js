@@ -10,6 +10,8 @@ const CLASSIC_LEADERBOARD_KEY = 'hoops:leaderboard';
 const CLASSIC_DAILY_PREFIX = 'hoops:daily:';
 const DISTANCE_LEADERBOARD_KEY = 'hoops:leaderboard:distance';
 const DISTANCE_DAILY_PREFIX = 'hoops:daily:distance:';
+const ENDLESS_LEADERBOARD_KEY = 'hoops:leaderboard:endless';
+const ENDLESS_DAILY_PREFIX = 'hoops:daily:endless:';
 const MAX_ENTRIES = 100;
 const MAX_DAILY = 50;
 const NAME_MAX_LEN = 12;
@@ -22,6 +24,15 @@ function boardConfig(mode = 'classic') {
       dailyPrefix: DISTANCE_DAILY_PREFIX,
       reverse: false,
       maxScore: 30 * 60 * 1000,
+    };
+  }
+  if (mode === 'endless') {
+    return {
+      mode: 'endless',
+      key: ENDLESS_LEADERBOARD_KEY,
+      dailyPrefix: ENDLESS_DAILY_PREFIX,
+      reverse: true,
+      maxScore: 2 * 60 * 60 * 1000,
     };
   }
   return {
@@ -49,11 +60,13 @@ function sanitizeName(name) {
 }
 
 function sanitizeMeta(meta, mode) {
-  if (mode !== 'distance' || !meta || typeof meta !== 'object') return {};
-  return {
+  if (!meta || typeof meta !== 'object') return {};
+  const clean = {
     makes: clampInt(meta.makes, 0, 999),
     shots: clampInt(meta.shots, 0, 999),
   };
+  if (mode === 'endless') clean.points = clampInt(meta.points, 0, 999999);
+  return mode === 'distance' || mode === 'endless' ? clean : {};
 }
 
 function clampInt(value, min, max) {
