@@ -359,31 +359,8 @@ export class Game {
       this.audio.playClick();
       this.leaderboard.saveName(name);
 
-      let result;
-      if (this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win') {
-        result = await this.leaderboard.submitScore(
-          name,
-          this.distanceRun.winTimeMs,
-          1,
-          GAME_MODE.DISTANCE,
-          { makes: this.distanceRun.makes, shots: this.distanceRun.shots },
-        );
-      } else if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
-        result = await this.leaderboard.submitScore(
-          name,
-          this.endlessRun.elapsedMs,
-          1,
-          GAME_MODE.ENDLESS,
-          { makes: this.endlessRun.makes, shots: this.endlessRun.shots, points: this.scoring.totalScore },
-        );
-      } else {
-        result = await this.leaderboard.submitScore(
-          name,
-          this.scoring.totalScore,
-          this.scoring.stageNum,
-          GAME_MODE.CLASSIC,
-        );
-      }
+      const entry = this._leaderboardEntryForCurrentRun();
+      const result = await this.leaderboard.submitScore(name, entry.score, entry.stage, entry.mode, entry.meta);
 
       if (result && result.rank) {
         this.globalRank = result.rank;
@@ -393,6 +370,31 @@ export class Game {
     } finally {
       this.submittingName = false;
     }
+  }
+
+  _leaderboardEntryForCurrentRun() {
+    if (this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win') {
+      return {
+        score: this.distanceRun.winTimeMs,
+        stage: 1,
+        mode: GAME_MODE.DISTANCE,
+        meta: { makes: this.distanceRun.makes, shots: this.distanceRun.shots },
+      };
+    }
+    if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
+      return {
+        score: this.endlessRun.elapsedMs,
+        stage: 1,
+        mode: GAME_MODE.ENDLESS,
+        meta: { makes: this.endlessRun.makes, shots: this.endlessRun.shots, points: this.scoring.totalScore },
+      };
+    }
+    return {
+      score: this.scoring.totalScore,
+      stage: this.scoring.stageNum,
+      mode: GAME_MODE.CLASSIC,
+      meta: {},
+    };
   }
 
   _skipNameEntry() {
@@ -665,8 +667,12 @@ export class Game {
     let timerResult = { timeUp: false, bonusTimeJustStarted: false };
     if (this.gameMode === GAME_MODE.DISTANCE) {
       this.distanceRun.elapsed += dt;
+    } else if (this.gameMode === GAME_MODE.ENDLESS) {
+      this.endlessRun.elapsed += dt;
+      this.scoring.timeRemaining = Math.max(0, this.scoring.timeRemaining - dt);
+      this.scoring.bonusTimeActive = false;
+      timerResult = { timeUp: this.scoring.timeRemaining <= 0, bonusTimeJustStarted: false };
     } else {
-      if (this.gameMode === GAME_MODE.ENDLESS) this.endlessRun.elapsed += dt;
       timerResult = this.scoring.updateTimer(dt);
     }
 

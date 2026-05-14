@@ -15,20 +15,23 @@ const ENDLESS_DAILY_PREFIX = 'hoops:daily:endless:';
 const MAX_ENTRIES = 100;
 const MAX_DAILY = 50;
 const NAME_MAX_LEN = 12;
+const MODE_CLASSIC = 'classic';
+const MODE_DISTANCE = 'distance';
+const MODE_ENDLESS = 'endless';
 
-function boardConfig(mode = 'classic') {
-  if (mode === 'distance') {
+function boardConfig(mode = MODE_CLASSIC) {
+  if (mode === MODE_DISTANCE) {
     return {
-      mode: 'distance',
+      mode: MODE_DISTANCE,
       key: DISTANCE_LEADERBOARD_KEY,
       dailyPrefix: DISTANCE_DAILY_PREFIX,
       reverse: false,
       maxScore: 30 * 60 * 1000,
     };
   }
-  if (mode === 'endless') {
+  if (mode === MODE_ENDLESS) {
     return {
-      mode: 'endless',
+      mode: MODE_ENDLESS,
       key: ENDLESS_LEADERBOARD_KEY,
       dailyPrefix: ENDLESS_DAILY_PREFIX,
       reverse: true,
@@ -36,7 +39,7 @@ function boardConfig(mode = 'classic') {
     };
   }
   return {
-    mode: 'classic',
+    mode: MODE_CLASSIC,
     key: CLASSIC_LEADERBOARD_KEY,
     dailyPrefix: CLASSIC_DAILY_PREFIX,
     reverse: true,
@@ -65,8 +68,8 @@ function sanitizeMeta(meta, mode) {
     makes: clampInt(meta.makes, 0, 999),
     shots: clampInt(meta.shots, 0, 999),
   };
-  if (mode === 'endless') clean.points = clampInt(meta.points, 0, 999999);
-  return mode === 'distance' || mode === 'endless' ? clean : {};
+  if (mode === MODE_ENDLESS) clean.points = clampInt(meta.points, 0, 999999);
+  return mode === MODE_DISTANCE || mode === MODE_ENDLESS ? clean : {};
 }
 
 function clampInt(value, min, max) {
@@ -96,7 +99,7 @@ export default async function handler(req, res) {
 }
 
 async function handleGet(req, res) {
-  const { type = 'alltime', limit = '20', mode = 'classic' } = req.query;
+  const { type = 'alltime', limit = '20', mode = MODE_CLASSIC } = req.query;
   const config = boardConfig(mode);
   const count = Math.min(parseInt(limit, 10) || 20, MAX_ENTRIES);
 
@@ -127,7 +130,7 @@ async function handleGet(req, res) {
 }
 
 async function handlePost(req, res) {
-  const { name, score, stage, mode = 'classic', meta = {} } = req.body || {};
+  const { name, score, stage, mode = MODE_CLASSIC, meta = {} } = req.body || {};
   const config = boardConfig(mode);
 
   if (typeof score !== 'number' || score <= 0 || score > config.maxScore) {

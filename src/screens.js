@@ -150,7 +150,9 @@ export class Screens {
     const btnW = Math.min(w * 0.72, 280);
     const btnH = 46;
     const gap = 10;
-    const startY = h * 0.52;
+    const stackH = btnH * 3 + gap * 2;
+    const leaderboardTop = this.getLeaderboardButtonRect(canvas).y;
+    const startY = Math.min(h * 0.52, leaderboardTop - stackH - 24);
     return {
       classic: { x: w / 2 - btnW / 2, y: startY, w: btnW, h: btnH },
       distance: { x: w / 2 - btnW / 2, y: startY + btnH + gap, w: btnW, h: btnH },
