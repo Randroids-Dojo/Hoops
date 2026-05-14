@@ -10,6 +10,7 @@ export class Leaderboard {
     this.error = null;
     this.lastSubmitRank = null;
     this.playerName = this._loadName();
+    this.mode = 'classic';
   }
 
   _loadName() {
@@ -29,11 +30,13 @@ export class Leaderboard {
     }
   }
 
-  async fetchLeaderboard(type = 'alltime', limit = 20) {
+  async fetchLeaderboard(type = 'alltime', limit = 20, mode = this.mode) {
     this.loading = true;
     this.error = null;
+    this.mode = mode;
     try {
-      const res = await fetch(`${API_BASE}?type=${type}&limit=${limit}`);
+      const params = new URLSearchParams({ type, limit: String(limit), mode });
+      const res = await fetch(`${API_BASE}?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (type === 'daily') {
@@ -49,22 +52,24 @@ export class Leaderboard {
     }
   }
 
-  async fetchBoth() {
+  async fetchBoth(mode = this.mode) {
+    this.mode = mode;
     await Promise.all([
-      this.fetchLeaderboard('alltime', 20),
-      this.fetchLeaderboard('daily', 20),
+      this.fetchLeaderboard('alltime', 20, mode),
+      this.fetchLeaderboard('daily', 20, mode),
     ]);
   }
 
-  async submitScore(name, score, stage) {
+  async submitScore(name, score, stage, mode = 'classic', meta = {}) {
     this.loading = true;
     this.error = null;
     this.lastSubmitRank = null;
+    this.mode = mode;
     try {
       const res = await fetch(API_BASE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, score, stage }),
+        body: JSON.stringify({ name, score, stage, mode, meta }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();

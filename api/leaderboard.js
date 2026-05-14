@@ -6,18 +6,39 @@ const kv = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN,
 });
 
-const LEADERBOARD_KEY = 'hoops:leaderboard';
-const DAILY_PREFIX = 'hoops:daily:';
+const CLASSIC_LEADERBOARD_KEY = 'hoops:leaderboard';
+const CLASSIC_DAILY_PREFIX = 'hoops:daily:';
+const DISTANCE_LEADERBOARD_KEY = 'hoops:leaderboard:distance';
+const DISTANCE_DAILY_PREFIX = 'hoops:daily:distance:';
 const MAX_ENTRIES = 100;
 const MAX_DAILY = 50;
 const NAME_MAX_LEN = 12;
 
-function todayKey() {
+function boardConfig(mode = 'classic') {
+  if (mode === 'distance') {
+    return {
+      mode: 'distance',
+      key: DISTANCE_LEADERBOARD_KEY,
+      dailyPrefix: DISTANCE_DAILY_PREFIX,
+      reverse: false,
+      maxScore: 30 * 60 * 1000,
+    };
+  }
+  return {
+    mode: 'classic',
+    key: CLASSIC_LEADERBOARD_KEY,
+    dailyPrefix: CLASSIC_DAILY_PREFIX,
+    reverse: true,
+    maxScore: 99999,
+  };
+}
+
+function todayKey(prefix) {
   const d = new Date();
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${DAILY_PREFIX}${yyyy}-${mm}-${dd}`;
+  return `${prefix}${yyyy}-${mm}-${dd}`;
 }
 
 function sanitizeName(name) {
@@ -48,18 +69,18 @@ export default async function handler(req, res) {
 }
 
 async function handleGet(req, res) {
-  const { type = 'alltime', limit = '20' } = req.query;
+  const { type = 'alltime', limit = '20', mode = 'classic' } = req.query;
+  const config = boardConfig(mode);
   const count = Math.min(parseInt(limit, 10) || 20, MAX_ENTRIES);
 
   let key;
   if (type === 'daily') {
-    key = todayKey();
+    key = todayKey(config.dailyPrefix);
   } else {
-    key = LEADERBOARD_KEY;
+    key = config.key;
   }
 
-  // ZREVRANGE returns highest scores first
-  const entries = await kv.zrange(key, 0, count - 1, { rev: true, withScores: true });
+  const entries = await kv.zrange(key, 0, count - 1, { rev: config.reverse, withScores: true });
 
   // entries comes as [member, score, member, score, ...]
   const results = [];
@@ -69,17 +90,20 @@ async function handleGet(req, res) {
       name: data.name,
       stage: data.stage,
       date: data.date,
+      mode: data.mode || 'classic',
+      meta: data.meta || {},
       score: entries[i + 1],
     });
   }
 
-  return res.status(200).json({ type, entries: results });
+  return res.status(200).json({ type, mode: config.mode, entries: results });
 }
 
 async function handlePost(req, res) {
-  const { name, score, stage } = req.body || {};
+  const { name, score, stage, mode = 'classic', meta = {} } = req.body || {};
+  const config = boardConfig(mode);
 
-  if (typeof score !== 'number' || score <= 0 || score > 99999) {
+  if (typeof score !== 'number' || score <= 0 || score > config.maxScore) {
     return res.status(400).json({ error: 'Invalid score' });
   }
   if (typeof stage !== 'number' || stage < 1 || stage > 999) {
@@ -90,31 +114,39 @@ async function handlePost(req, res) {
   const date = new Date().toISOString();
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const member = JSON.stringify({ name: cleanName, stage, date, id });
+  const member = JSON.stringify({ name: cleanName, stage, date, id, mode: config.mode, meta });
 
-  // Add to all-time leaderboard
-  await kv.zadd(LEADERBOARD_KEY, { score, member });
+  await kv.zadd(config.key, { score, member });
 
-  // Add to daily leaderboard (expires at end of day + 1h buffer)
-  const dailyKey = todayKey();
+  const dailyKey = todayKey(config.dailyPrefix);
   await kv.zadd(dailyKey, { score, member });
   // Set TTL of 25 hours on daily key so it auto-expires
   await kv.expire(dailyKey, 25 * 60 * 60);
 
   // Trim all-time to top MAX_ENTRIES (remove lowest scores beyond limit)
-  const totalCount = await kv.zcard(LEADERBOARD_KEY);
+  const totalCount = await kv.zcard(config.key);
   if (totalCount > MAX_ENTRIES) {
-    await kv.zremrangebyrank(LEADERBOARD_KEY, 0, totalCount - MAX_ENTRIES - 1);
+    if (config.reverse) {
+      await kv.zremrangebyrank(config.key, 0, totalCount - MAX_ENTRIES - 1);
+    } else {
+      await kv.zremrangebyrank(config.key, MAX_ENTRIES, -1);
+    }
   }
 
   // Trim daily
   const dailyCount = await kv.zcard(dailyKey);
   if (dailyCount > MAX_DAILY) {
-    await kv.zremrangebyrank(dailyKey, 0, dailyCount - MAX_DAILY - 1);
+    if (config.reverse) {
+      await kv.zremrangebyrank(dailyKey, 0, dailyCount - MAX_DAILY - 1);
+    } else {
+      await kv.zremrangebyrank(dailyKey, MAX_DAILY, -1);
+    }
   }
 
   // Get the player's rank (0-based, from top)
-  const rank = await kv.zrevrank(LEADERBOARD_KEY, member);
+  const rank = config.reverse
+    ? await kv.zrevrank(config.key, member)
+    : await kv.zrank(config.key, member);
 
   return res.status(200).json({
     success: true,

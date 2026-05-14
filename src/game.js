@@ -27,6 +27,16 @@ const METER_ADJUST_SCALE = 0.5;
 // no adjustment to the drag-aim. The launch formula references this same
 // constant so moving the mark doesn't change the neutral-power behavior.
 const METER_PERFECT_NORM = 0.7;
+const GAME_MODE = {
+  CLASSIC: 'classic',
+  DISTANCE: 'distance',
+};
+const DISTANCE_MODE = {
+  scoreStepZ: -0.18,
+  missStepZ: 0.14,
+  winOffsetZ: -0.9,
+  loseOffsetZ: 0.42,
+};
 
 export class Game {
   constructor(canvas, ctx, world3d) {
@@ -71,6 +81,8 @@ export class Game {
     this._wasDragging = false;
     this.leaderboardReturnState = 'title'; // where to go back from leaderboard
     this.globalRank = null; // rank from last submission
+    this.gameMode = GAME_MODE.CLASSIC;
+    this.distanceRun = null;
 
     this._setupInput();
     this._setupKeyboard();
@@ -221,20 +233,30 @@ export class Game {
 
   _handleTitleTap(x, y) {
     // Check leaderboard button
-    const btn = this.screens.getLeaderboardButtonRect(this.canvas);
-    if (this.screens._hitTest(x, y, btn)) {
-      this._openLeaderboard();
+    const boardBtns = this.screens.getTitleLeaderboardRects(this.canvas);
+    if (this.screens._hitTest(x, y, boardBtns.classic)) {
+      this._openLeaderboard(GAME_MODE.CLASSIC);
       return;
     }
-    // Otherwise start game
-    this.startGame();
+    if (this.screens._hitTest(x, y, boardBtns.distance)) {
+      this._openLeaderboard(GAME_MODE.DISTANCE);
+      return;
+    }
+    const modes = this.screens.getTitleModeRects(this.canvas);
+    if (this.screens._hitTest(x, y, modes.distance)) {
+      this.startGame(GAME_MODE.DISTANCE);
+      return;
+    }
+    if (this.screens._hitTest(x, y, modes.classic)) {
+      this.startGame(GAME_MODE.CLASSIC);
+    }
   }
 
   _handleGameOverTap(x, y) {
     const restartBtn = this.screens.getRestartButtonRect(this.canvas);
     // startGame() already plays a click, so we don't double up here.
     if (this.screens._hitTest(x, y, restartBtn)) {
-      this.startGame();
+      this.startGame(this.gameMode);
       return;
     }
     const titleBtn = this.screens.getTitleLinkRect(this.canvas);
@@ -318,12 +340,20 @@ export class Game {
     this.audio.playClick();
     this.leaderboard.saveName(name);
 
-    // Submit to global leaderboard
-    const result = await this.leaderboard.submitScore(
-      name,
-      this.scoring.totalScore,
-      this.scoring.stageNum,
-    );
+    const result = this.gameMode === GAME_MODE.DISTANCE && this.distanceRun?.result === 'win'
+      ? await this.leaderboard.submitScore(
+        name,
+        this.distanceRun.winTimeMs,
+        1,
+        GAME_MODE.DISTANCE,
+        { makes: this.distanceRun.makes, shots: this.distanceRun.shots },
+      )
+      : await this.leaderboard.submitScore(
+        name,
+        this.scoring.totalScore,
+        this.scoring.stageNum,
+        GAME_MODE.CLASSIC,
+      );
 
     if (result && result.rank) {
       this.globalRank = result.rank;
@@ -340,11 +370,11 @@ export class Game {
 
   // --- Leaderboard ---
 
-  _openLeaderboard() {
+  _openLeaderboard(mode = this.gameMode) {
     this.leaderboardReturnState = this.state;
     this.state = 'leaderboard';
     this.audio.playClick();
-    this.leaderboard.fetchBoth();
+    this.leaderboard.fetchBoth(mode);
   }
 
   _exitLeaderboard() {
@@ -371,7 +401,7 @@ export class Game {
       return;
     }
     if (this.screens._hitTest(x, y, rects.restart)) {
-      this.startGame();
+      this.startGame(this.gameMode);
       return;
     }
     if (this.screens._hitTest(x, y, rects.quit)) {
@@ -403,6 +433,10 @@ export class Game {
     hideFab();
     this.state = 'title';
     this.previousState = null;
+    this.gameMode = GAME_MODE.CLASSIC;
+    this.distanceRun = null;
+    this.hoop.setDepthOffset(0);
+    this.hoop.setMovement(0, 0);
     this._resetBallPool();
     this.particles.clear();
   }
@@ -431,23 +465,40 @@ export class Game {
 
   // --- Core game flow ---
 
-  startGame() {
+  startGame(mode = GAME_MODE.CLASSIC) {
     this.audio.init();
     this.audio.resume();
     this.audio.playClick();
 
     hideFab();
+    this.gameMode = mode;
     this.state = 'playing';
     this.previousState = null;
     this.scoring.reset();
+    this.distanceRun = mode === GAME_MODE.DISTANCE ? this._createDistanceRun() : null;
     this._resetBallPool();
     this.particles.clear();
     this.hud.notifications = [];
     this.globalRank = null;
 
-    // Set hoop movement for stage 1
-    this.hoop.setMovement(this.scoring.stageData.hoopSpeed, this.scoring.stageData.hoopAmplitude);
+    this.hoop.setDepthOffset(this.distanceRun?.offsetZ || 0);
+    this.hoop.setMovement(
+      mode === GAME_MODE.CLASSIC ? this.scoring.stageData.hoopSpeed : 0,
+      mode === GAME_MODE.CLASSIC ? this.scoring.stageData.hoopAmplitude : 0,
+    );
     this.hoop.setFireIntensity(0);
+  }
+
+  _createDistanceRun() {
+    return {
+      elapsed: 0,
+      winTimeMs: 0,
+      offsetZ: 0,
+      shots: 0,
+      makes: 0,
+      result: null,
+      progress: 0,
+    };
   }
 
   _resetBallPool() {
@@ -459,6 +510,10 @@ export class Game {
   returnToTitle() {
     this.audio.playClick();
     this.state = 'title';
+    this.gameMode = GAME_MODE.CLASSIC;
+    this.distanceRun = null;
+    this.hoop.setDepthOffset(0);
+    this.hoop.setMovement(0, 0);
     this._resetBallPool();
     this.particles.clear();
   }
@@ -557,8 +612,12 @@ export class Game {
       this.hoop.setFireIntensity(0);
     }
 
-    // Update timer
-    const timerResult = this.scoring.updateTimer(dt);
+    let timerResult = { timeUp: false, bonusTimeJustStarted: false };
+    if (this.gameMode === GAME_MODE.DISTANCE) {
+      this.distanceRun.elapsed += dt;
+    } else {
+      timerResult = this.scoring.updateTimer(dt);
+    }
 
     if (timerResult.bonusTimeJustStarted) {
       this.audio.playBonusTime();
@@ -592,6 +651,7 @@ export class Game {
         this.audio.playRimHit();
       }
       if (ball.missed) this._onMiss(ball);
+      if (this.state !== 'playing') return;
     }
 
     // As soon as the active ball has hit something (or scored/missed),
@@ -602,13 +662,13 @@ export class Game {
     }
 
     // Check stage complete before time-up (completing target trumps timer)
-    if (this.scoring.isStageComplete() && this.state === 'playing') {
+    if (this.gameMode === GAME_MODE.CLASSIC && this.scoring.isStageComplete() && this.state === 'playing') {
       this._onStageClear();
       return;
     }
 
     // Check time's up
-    if (timerResult.timeUp && this.state === 'playing') {
+    if (this.gameMode === GAME_MODE.CLASSIC && timerResult.timeUp && this.state === 'playing') {
       this._onTimeUp();
     }
   }
@@ -618,6 +678,11 @@ export class Game {
     ball.active = false;
     ball.scored = true;
     ball.hasContacted = true;
+
+    if (this.gameMode === GAME_MODE.DISTANCE) {
+      this._onDistanceScore(isSwish);
+      return;
+    }
 
     const result = this.scoring.scoreShot(isSwish);
     this.hoop.triggerNetRipple();
@@ -644,12 +709,78 @@ export class Game {
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
   }
 
+  _onDistanceScore(isSwish) {
+    const result = this.scoring.scoreShot(isSwish);
+    const run = this.distanceRun;
+    run.shots++;
+    run.makes++;
+
+    this.hoop.triggerNetRipple();
+    if (isSwish) this.audio.playSwish();
+    this.audio.playScore();
+    if (result.streakMilestone) this.audio.playStreakMilestone();
+    for (const text of result.notifications) this.hud.addNotification(text);
+
+    run.offsetZ = Math.max(DISTANCE_MODE.winOffsetZ, run.offsetZ + DISTANCE_MODE.scoreStepZ);
+    this._syncDistanceProgress();
+    this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
+
+    if (run.offsetZ <= DISTANCE_MODE.winOffsetZ) {
+      this._onDistanceWin();
+    } else {
+      this.hud.addNotification('DEEPER', 0.8);
+      this.hoop.setDepthOffset(run.offsetZ);
+    }
+  }
+
   _onMiss(ball) {
     if (!ball.active || !ball.missed) return;
     ball.active = false;
     ball.hasContacted = true;
     this.scoring.missShot();
     this.audio.playMiss();
+
+    if (this.gameMode === GAME_MODE.DISTANCE) {
+      const run = this.distanceRun;
+      run.shots++;
+      run.offsetZ = Math.min(DISTANCE_MODE.loseOffsetZ, run.offsetZ + DISTANCE_MODE.missStepZ);
+      this._syncDistanceProgress();
+      if (run.offsetZ >= DISTANCE_MODE.loseOffsetZ) {
+        this._onDistanceLoss();
+      } else {
+        this.hud.addNotification('CLOSER', 0.8);
+        this.hoop.setDepthOffset(run.offsetZ);
+      }
+    }
+  }
+
+  _syncDistanceProgress() {
+    const run = this.distanceRun;
+    const span = Math.abs(DISTANCE_MODE.winOffsetZ);
+    run.progress = clamp(Math.abs(Math.min(0, run.offsetZ)) / span, 0, 1);
+  }
+
+  _onDistanceWin() {
+    const run = this.distanceRun;
+    run.result = 'win';
+    run.progress = 1;
+    run.winTimeMs = Math.round(run.elapsed * 1000);
+    this.hoop.setDepthOffset(run.offsetZ);
+    this.audio.playStageClear();
+    this.particles.emitCelebration(this.canvas.width, this.canvas.height);
+    this._resetBallPool();
+    this.state = 'nameEntry';
+    this.screens.initNameEntry(this.leaderboard.playerName);
+    this.globalRank = null;
+  }
+
+  _onDistanceLoss() {
+    this.distanceRun.result = 'loss';
+    this.hoop.setDepthOffset(this.distanceRun.offsetZ);
+    this.audio.playTimeUp();
+    this.screens.startFlash();
+    this._resetBallPool();
+    this.state = 'gameOver';
   }
 
   _onStageClear() {
@@ -707,7 +838,11 @@ export class Game {
 
     if (this.state === 'playing' || this.state === 'paused' || this.state === 'settings') {
       this.particles.render(ctx);
-      this.hud.render(ctx, canvas, this.scoring);
+      if (this.gameMode === GAME_MODE.DISTANCE) {
+        this._renderDistanceHud(ctx);
+      } else {
+        this.hud.render(ctx, canvas, this.scoring);
+      }
 
       if (this.state === 'paused') {
         this.screens.renderPause(ctx, canvas);
@@ -738,13 +873,13 @@ export class Game {
 
     if (this.state === 'nameEntry') {
       this.particles.render(ctx);
-      this.screens.renderNameEntry(ctx, canvas, this.scoring.totalScore, this.scoring.stageNum);
+      this.screens.renderNameEntry(ctx, canvas, this.scoring.totalScore, this.scoring.stageNum, this.distanceRun?.result === 'win' ? this.distanceRun : null);
       return;
     }
 
     if (this.state === 'gameOver') {
       this.particles.render(ctx);
-      this.screens.renderGameOver(ctx, canvas, this.scoring, this.globalRank);
+      this.screens.renderGameOver(ctx, canvas, this.scoring, this.globalRank, this.gameMode === GAME_MODE.DISTANCE ? this.distanceRun : null);
       return;
     }
 
@@ -755,14 +890,82 @@ export class Game {
     }
   }
 
+  _renderDistanceHud(ctx) {
+    const { canvas } = this;
+    const w = canvas.width;
+    const h = canvas.height;
+    const padding = 20;
+    const run = this.distanceRun;
+    const elapsedMs = Math.round(run.elapsed * 1000);
+
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '14px monospace';
+    ctx.fillText('GOAL', padding, padding + 14);
+    ctx.fillStyle = COLORS.primary;
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText('DEEP', padding, padding + 42);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '14px monospace';
+    ctx.fillText('TIME', w / 2, padding + 14);
+    ctx.fillStyle = COLORS.white;
+    ctx.font = 'bold 32px monospace';
+    ctx.fillText(formatRunTime(elapsedMs), w / 2, padding + 48);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '14px monospace';
+    ctx.fillText('MAKES', w - padding, padding + 14);
+    ctx.fillStyle = COLORS.scoreGreen;
+    ctx.font = 'bold 28px monospace';
+    ctx.fillText(`${run.makes}/${run.shots}`, w - padding, padding + 44);
+
+    const meterW = Math.min(w * 0.58, 360);
+    const meterH = 12;
+    const meterX = w / 2 - meterW / 2;
+    const meterY = h * 0.19;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    this.screens._roundRect(ctx, meterX, meterY, meterW, meterH, 6);
+    ctx.fill();
+    ctx.fillStyle = COLORS.scoreGreen;
+    ctx.shadowColor = COLORS.scoreGreen;
+    ctx.shadowBlur = 10;
+    this.screens._roundRect(ctx, meterX, meterY, meterW * run.progress, meterH, 6);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.font = '11px monospace';
+    ctx.fillText('START', meterX, meterY + 28);
+    ctx.textAlign = 'right';
+    ctx.fillText('WIN', meterX + meterW, meterY + 28);
+    ctx.restore();
+
+    if (this.scoring.streak > 0) {
+      ctx.save();
+      ctx.textAlign = 'right';
+      ctx.fillStyle = COLORS.scoreGreen;
+      ctx.font = 'bold 34px monospace';
+      ctx.fillText(`${this.scoring.streak}`, w - padding, h * 0.45);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.font = '12px monospace';
+      ctx.fillText('STREAK', w - padding, h * 0.45 - 22);
+      ctx.restore();
+    }
+
+    this.hud._renderNotifications(ctx, w, h);
+  }
+
   // Drag-power fraction that produces the perfect rim shot at the current
   // hoop position. Used to scale the visual arc so a sweet drag distance
   // puts the on-screen reticle exactly on the rim.
   _perfectDragNorm() {
     const spawn = COURT.ballSpawn;
-    const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
-    const R = Math.sqrt((spawn.x - rimX) ** 2 + (spawn.z - COURT.rim.z) ** 2);
-    const h = COURT.rim.y - spawn.y;
+    const rim = this.hoop.getRimCenter();
+    const R = Math.sqrt((spawn.x - rim.x) ** 2 + (spawn.z - rim.z) ** 2);
+    const h = rim.y - spawn.y;
     const theta = 55 * Math.PI / 180;
     const denom = 2 * Math.cos(theta) ** 2 * (R * Math.tan(theta) - h);
     if (denom <= 0) return 0.5;
@@ -782,9 +985,10 @@ export class Game {
     const v = launchVector(power, lateralAngle);
 
     const spawn = COURT.ballSpawn;
-    const rimX = COURT.rim.x + (this.hoop.offsetX || 0);
-    const rimY = COURT.rim.y;
-    const rimZ = COURT.rim.z;
+    const rim = this.hoop.getRimCenter();
+    const rimX = rim.x;
+    const rimY = rim.y;
+    const rimZ = rim.z;
     const rimR = COURT.rimRadius;
     const g = 9.82;
 
@@ -935,9 +1139,7 @@ export class Game {
     // Scale drag delta so that the visual endpoint lines up with the rim
     // when the player has dragged a "perfect" power. Below that → endpoint
     // short of rim, above → endpoint past it. Direction follows the drag.
-    const rimScreen = this.world3d.projectToScreen(new THREE.Vector3(
-      COURT.rim.x + (this.hoop.offsetX || 0), COURT.rim.y, COURT.rim.z,
-    ));
+    const rimScreen = this.world3d.projectToScreen(this.hoop.getRimCenter());
     const ballToRim = Math.hypot(rimScreen.x - start.x, rimScreen.y - start.y);
     const perfectDragPx = Math.max(1, this._perfectDragNorm() * this.canvas.height * 0.55);
     const scale = ballToRim / perfectDragPx;
@@ -1038,4 +1240,12 @@ function withAlpha(hex, a) {
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function formatRunTime(ms) {
+  const totalMs = Math.max(0, Math.round(Number(ms) || 0));
+  const minutes = Math.floor(totalMs / 60000);
+  const seconds = Math.floor((totalMs % 60000) / 1000);
+  const tenths = Math.floor((totalMs % 1000) / 100);
+  return `${minutes}:${seconds.toString().padStart(2, '0')}.${tenths}`;
 }

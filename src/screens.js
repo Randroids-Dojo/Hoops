@@ -133,6 +133,29 @@ export class Screens {
     };
   }
 
+  getTitleLeaderboardRects(canvas) {
+    const base = this.getLeaderboardButtonRect(canvas);
+    const gap = 8;
+    const w = (base.w - gap) / 2;
+    return {
+      classic: { x: base.x, y: base.y, w, h: base.h },
+      distance: { x: base.x + w + gap, y: base.y, w, h: base.h },
+    };
+  }
+
+  getTitleModeRects(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const btnW = Math.min(w * 0.72, 280);
+    const btnH = 46;
+    const gap = 12;
+    const startY = h * 0.55;
+    return {
+      classic: { x: w / 2 - btnW / 2, y: startY, w: btnW, h: btnH },
+      distance: { x: w / 2 - btnW / 2, y: startY + btnH + gap, w: btnW, h: btnH },
+    };
+  }
+
   getLeaderboardBackButtonRect(canvas) {
     const w = canvas.width;
     return { x: 10, y: 10, w: Math.min(w * 0.2, 80), h: 36 };
@@ -142,7 +165,7 @@ export class Screens {
     const w = canvas.width;
     const tabW = Math.min(w * 0.3, 120);
     const tabH = 32;
-    const y = 60;
+    const y = 78;
     return {
       alltime: { x: w / 2 - tabW - 4, y, w: tabW, h: tabH },
       daily: { x: w / 2 + 4, y, w: tabW, h: tabH },
@@ -230,15 +253,10 @@ export class Screens {
     ctx.font = `${Math.min(w * 0.035, 20)}px monospace`;
     ctx.fillText('ARCADE BASKETBALL', w / 2, titleY + 40);
 
-    // Tap to play prompt (pulsing)
-    const promptAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
-    ctx.globalAlpha = promptAlpha;
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `bold ${Math.min(w * 0.04, 22)}px monospace`;
-
-    const isMobile = 'ontouchstart' in window;
-    ctx.fillText(isMobile ? 'TAP TO PLAY' : 'CLICK TO PLAY', w / 2, h * 0.65);
-    ctx.globalAlpha = 1;
+    const modes = this.getTitleModeRects(canvas);
+    const pulse = 0.86 + Math.sin(Date.now() * 0.004) * 0.14;
+    this._drawTitleModeButton(ctx, modes.classic, 'CLASSIC', 'Score attack', COLORS.scoreGreen, pulse);
+    this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it deeper', COLORS.primary, 1);
 
     // High score
     if (bestScore > 0) {
@@ -246,22 +264,22 @@ export class Screens {
       ctx.shadowColor = COLORS.scoreGreen;
       ctx.shadowBlur = 8;
       ctx.font = '16px monospace';
-      ctx.fillText(`BEST: ${bestScore}`, w / 2, h * 0.75);
+      ctx.fillText(`BEST: ${bestScore}`, w / 2, modes.distance.y + modes.distance.h + 28);
       ctx.shadowBlur = 0;
     }
 
-    // Leaderboard button
-    const btn = this.getLeaderboardButtonRect(canvas);
-    ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
-    ctx.strokeStyle = COLORS.primary;
-    ctx.lineWidth = 2;
-    this._roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = COLORS.primary;
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText('LEADERBOARD', w / 2, btn.y + btn.h / 2 + 5);
+    const boards = this.getTitleLeaderboardRects(canvas);
+    for (const [key, rect] of Object.entries(boards)) {
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
+      ctx.strokeStyle = COLORS.primary;
+      ctx.lineWidth = 1.5;
+      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = COLORS.primary;
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(key === 'classic' ? 'SCORE LB' : 'TIME LB', rect.x + rect.w / 2, rect.y + rect.h / 2 + 4);
+    }
 
     // Sound toggle hint
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
@@ -271,7 +289,29 @@ export class Screens {
     ctx.restore();
   }
 
-  renderGameOver(ctx, canvas, scoring, globalRank) {
+  _drawTitleModeButton(ctx, rect, title, subtitle, color, pulse) {
+    ctx.save();
+    ctx.fillStyle = `rgba(0, 229, 255, ${0.08 + 0.08 * pulse})`;
+    if (color === COLORS.scoreGreen) ctx.fillStyle = `rgba(0, 255, 65, ${0.08 + 0.08 * pulse})`;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10 * pulse;
+    this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.font = 'bold 17px monospace';
+    ctx.fillText(title, rect.x + rect.w / 2, rect.y + 20);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '11px monospace';
+    ctx.fillText(subtitle, rect.x + rect.w / 2, rect.y + 36);
+    ctx.restore();
+  }
+
+  renderGameOver(ctx, canvas, scoring, globalRank, distanceRun = null) {
     const w = canvas.width;
     const h = canvas.height;
 
@@ -282,33 +322,51 @@ export class Screens {
     ctx.save();
     ctx.textAlign = 'center';
 
-    // TIME'S UP
-    ctx.fillStyle = COLORS.red;
-    ctx.shadowColor = COLORS.red;
+    const isDistance = Boolean(distanceRun);
+    const wonDistance = isDistance && distanceRun.result === 'win';
+    const title = isDistance ? (wonDistance ? 'YOU WIN!' : 'GAME OVER') : "TIME'S UP!";
+    const titleColor = wonDistance ? COLORS.scoreGreen : COLORS.red;
+
+    ctx.fillStyle = titleColor;
+    ctx.shadowColor = titleColor;
     ctx.shadowBlur = 20;
     ctx.font = `bold ${Math.min(w * 0.12, 72)}px monospace`;
-    ctx.fillText("TIME'S UP!", w / 2, h * 0.25);
+    ctx.fillText(title, w / 2, h * 0.25);
     ctx.shadowBlur = 0;
 
-    // Final score
-    ctx.fillStyle = COLORS.white;
-    ctx.font = '18px monospace';
-    ctx.fillText('FINAL SCORE', w / 2, h * 0.37);
+    if (isDistance) {
+      ctx.fillStyle = COLORS.white;
+      ctx.font = '18px monospace';
+      ctx.fillText(wonDistance ? 'FINISH TIME' : 'BEST DISTANCE', w / 2, h * 0.37);
 
-    ctx.fillStyle = COLORS.scoreGreen;
-    ctx.shadowColor = COLORS.scoreGreen;
-    ctx.shadowBlur = 15;
-    ctx.font = `bold ${Math.min(w * 0.1, 64)}px monospace`;
-    ctx.fillText(`${scoring.totalScore}`, w / 2, h * 0.45);
-    ctx.shadowBlur = 0;
+      ctx.fillStyle = wonDistance ? COLORS.scoreGreen : COLORS.primary;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 15;
+      ctx.font = `bold ${Math.min(w * 0.09, 54)}px monospace`;
+      ctx.fillText(wonDistance ? formatTime(distanceRun.winTimeMs) : `${Math.round(distanceRun.progress * 100)}%`, w / 2, h * 0.45);
+      ctx.shadowBlur = 0;
 
-    // Stage reached
-    ctx.fillStyle = COLORS.primary;
-    ctx.font = '20px monospace';
-    ctx.fillText(`Stage ${scoring.stageNum} reached`, w / 2, h * 0.53);
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = '16px monospace';
+      ctx.fillText(`${distanceRun.makes}/${distanceRun.shots} makes`, w / 2, h * 0.53);
+    } else {
+      ctx.fillStyle = COLORS.white;
+      ctx.font = '18px monospace';
+      ctx.fillText('FINAL SCORE', w / 2, h * 0.37);
 
-    // High score indicator
-    if (scoring.isHighScore()) {
+      ctx.fillStyle = COLORS.scoreGreen;
+      ctx.shadowColor = COLORS.scoreGreen;
+      ctx.shadowBlur = 15;
+      ctx.font = `bold ${Math.min(w * 0.1, 64)}px monospace`;
+      ctx.fillText(`${scoring.totalScore}`, w / 2, h * 0.45);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = COLORS.primary;
+      ctx.font = '20px monospace';
+      ctx.fillText(`Stage ${scoring.stageNum} reached`, w / 2, h * 0.53);
+    }
+
+    if (!isDistance && scoring.isHighScore()) {
       const hsAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.5;
       ctx.globalAlpha = hsAlpha;
       ctx.fillStyle = '#FFD700';
@@ -339,7 +397,7 @@ export class Screens {
 
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.font = 'bold 22px monospace';
-    ctx.fillText('RESTART', w / 2, btn.y + btn.h / 2 + 8);
+    ctx.fillText(isDistance && !wonDistance ? 'TRY AGAIN' : 'RESTART', w / 2, btn.y + btn.h / 2 + 8);
 
     // Back-to-title link
     const link = this.getTitleLinkRect(canvas);
@@ -350,7 +408,7 @@ export class Screens {
     ctx.restore();
   }
 
-  renderNameEntry(ctx, canvas, score, stage) {
+  renderNameEntry(ctx, canvas, score, stage, distanceRun = null) {
     const w = canvas.width;
     const h = canvas.height;
 
@@ -369,13 +427,19 @@ export class Screens {
     ctx.fillText('ENTER YOUR NAME', w / 2, h * 0.22);
     ctx.shadowBlur = 0;
 
-    // Score display
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.font = 'bold 28px monospace';
-    ctx.fillText(`SCORE: ${score}`, w / 2, h * 0.33);
-    ctx.fillStyle = COLORS.primary;
-    ctx.font = '16px monospace';
-    ctx.fillText(`Stage ${stage}`, w / 2, h * 0.38);
+    if (distanceRun) {
+      ctx.fillText(`TIME: ${formatTime(distanceRun.winTimeMs)}`, w / 2, h * 0.33);
+      ctx.fillStyle = COLORS.primary;
+      ctx.font = '16px monospace';
+      ctx.fillText(`${distanceRun.makes}/${distanceRun.shots} makes`, w / 2, h * 0.38);
+    } else {
+      ctx.fillText(`SCORE: ${score}`, w / 2, h * 0.33);
+      ctx.fillStyle = COLORS.primary;
+      ctx.font = '16px monospace';
+      ctx.fillText(`Stage ${stage}`, w / 2, h * 0.38);
+    }
 
     // Character slots
     const charRects = this.getNameEntryCharRects(canvas);
@@ -455,7 +519,7 @@ export class Screens {
     ctx.shadowColor = COLORS.primary;
     ctx.shadowBlur = 20;
     ctx.font = `bold ${Math.min(w * 0.08, 40)}px monospace`;
-    ctx.fillText('LEADERBOARD', w / 2, 42);
+    ctx.fillText(leaderboard.mode === 'distance' ? 'DISTANCE LEADERS' : 'LEADERBOARD', w / 2, 54);
     ctx.shadowBlur = 0;
 
     // Back button
@@ -488,7 +552,7 @@ export class Screens {
       ? (leaderboard.dailyEntries || [])
       : (leaderboard.allTimeEntries || []);
 
-    const startY = 110;
+    const startY = 128;
     const rowH = 32;
     const maxVisible = Math.floor((h - startY - 40) / rowH);
 
@@ -518,14 +582,15 @@ export class Screens {
       const colName = w * 0.35;
       const colScore = w * 0.62;
       const colStage = w * 0.85;
+      const distanceMode = leaderboard.mode === 'distance';
 
       ctx.textAlign = 'center';
       ctx.fillText('#', colRank, startY);
       ctx.textAlign = 'left';
       ctx.fillText('NAME', colName - 30, startY);
       ctx.textAlign = 'right';
-      ctx.fillText('SCORE', colScore + 20, startY);
-      ctx.fillText('STG', colStage + 10, startY);
+      ctx.fillText(distanceMode ? 'TIME' : 'SCORE', colScore + 20, startY);
+      ctx.fillText(distanceMode ? 'MK' : 'STG', colStage + 10, startY);
 
       // Divider
       ctx.strokeStyle = 'rgba(255,255,255,0.1)';
@@ -578,12 +643,12 @@ export class Screens {
         ctx.textAlign = 'right';
         ctx.fillStyle = COLORS.scoreGreen;
         ctx.font = rank <= 3 ? 'bold 15px monospace' : '14px monospace';
-        ctx.fillText(`${entry.score}`, colScore + 20, y);
+        ctx.fillText(distanceMode ? formatTime(entry.score) : `${entry.score}`, colScore + 20, y);
 
-        // Stage
+        // Stage / makes
         ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = '13px monospace';
-        ctx.fillText(`${entry.stage || '-'}`, colStage + 10, y);
+        ctx.fillText(distanceMode ? `${entry.meta?.makes || '-'}` : `${entry.stage || '-'}`, colStage + 10, y);
       }
     }
 
@@ -792,4 +857,12 @@ export class Screens {
   _hitTest(x, y, rect) {
     return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
   }
+}
+
+function formatTime(ms) {
+  const totalMs = Math.max(0, Math.round(Number(ms) || 0));
+  const minutes = Math.floor(totalMs / 60000);
+  const seconds = Math.floor((totalMs % 60000) / 1000);
+  const tenths = Math.floor((totalMs % 1000) / 100);
+  return `${minutes}:${seconds.toString().padStart(2, '0')}.${tenths}`;
 }

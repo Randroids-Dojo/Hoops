@@ -24,6 +24,7 @@ export class Hoop {
     this.moveAmplitude = 0;
     this.movePhase = 0;
     this.offsetX = 0;
+    this.offsetZ = 0;
     this.fireIntensity = 0;
     this._netRipple = 0;
     this._netTime = 0;
@@ -259,25 +260,40 @@ export class Hoop {
     this.world3d.physicsWorld.addBody(this.backboardBody);
   }
 
-  _reposition(offsetX) {
+  _reposition(offsetX = this.offsetX, offsetZ = this.offsetZ) {
     this.offsetX = offsetX;
+    this.offsetZ = offsetZ;
     const cx = this.rimCenter.x + offsetX;
+    const cz = this.rimCenter.z + offsetZ;
 
     // Visuals
     this.assembly.position.x = offsetX;
+    this.assembly.position.z = offsetZ;
 
     // Physics — kinematic bodies need direct position updates
     for (const { body, angle } of this.rimBodies) {
       body.position.set(
         cx + Math.cos(angle) * this.rimRadius,
         this.rimCenter.y,
-        this.rimCenter.z + Math.sin(angle) * this.rimRadius,
+        cz + Math.sin(angle) * this.rimRadius,
       );
     }
     this.backboardBody.position.set(
       cx,
       this.rimCenter.y + 0.32,
-      this.rimCenter.z - COURT.backboardOffset,
+      cz - COURT.backboardOffset,
+    );
+  }
+
+  setDepthOffset(offsetZ) {
+    this._reposition(this.offsetX, offsetZ);
+  }
+
+  getRimCenter() {
+    return new THREE.Vector3(
+      this.rimCenter.x + this.offsetX,
+      this.rimCenter.y,
+      this.rimCenter.z + this.offsetZ,
     );
   }
 
@@ -302,7 +318,7 @@ export class Hoop {
   // independent projections when the caller reads both x and y.
   getScreenPos() {
     return this.world3d.projectToScreen(
-      new THREE.Vector3(this.rimCenter.x + this.offsetX, this.rimCenter.y, this.rimCenter.z),
+      this.getRimCenter(),
     );
   }
 
@@ -313,9 +329,9 @@ export class Hoop {
     // Hoop oscillation
     if (this.moveSpeed > 0) {
       this.movePhase += this.moveSpeed * dt;
-      this._reposition(Math.sin(this.movePhase) * this.moveAmplitude);
+      this._reposition(Math.sin(this.movePhase) * this.moveAmplitude, this.offsetZ);
     } else if (this.offsetX !== 0) {
-      this._reposition(0);
+      this._reposition(0, this.offsetZ);
     }
 
     this._netTime += dt;
@@ -376,7 +392,7 @@ export class Hoop {
     if (balls) {
       const cx = this.rimCenter.x + this.offsetX;
       const cy = this.rimCenter.y;
-      const cz = this.rimCenter.z;
+      const cz = this.rimCenter.z + this.offsetZ;
       for (const ball of balls) {
         if (!ball.visible) continue;
         const bp = ball.body.position;
@@ -517,7 +533,7 @@ export class Hoop {
 
     const cx = this.rimCenter.x + this.offsetX;
     const cy = this.rimCenter.y;
-    const cz = this.rimCenter.z;
+    const cz = this.rimCenter.z + this.offsetZ;
 
     const p = ball.body.position;
     const prev = ball.body.previousPosition || p;
