@@ -1,4 +1,5 @@
 // Math helpers and constants
+import { clamp, lerp, range } from '@randroids-dojo/vibekit';
 
 // Colors
 export const COLORS = {
@@ -58,19 +59,12 @@ export const BALL_RADIUS_BASE = 28;
 export const RIM_RADIUS = 32;
 export const RIM_BOUNCE_DAMPING = 0.45;
 
-// Helpers
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-export function clamp(val, min, max) {
-  return Math.max(min, Math.min(max, val));
-}
+export { clamp, lerp };
 
 export function dist(x1, y1, x2, y2) {
   return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
 
 export function randomRange(min, max) {
-  return min + Math.random() * (max - min);
+  return range(Math.random, min, max);
 }

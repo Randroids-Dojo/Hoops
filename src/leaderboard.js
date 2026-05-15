@@ -1,6 +1,10 @@
 // Client-side leaderboard module - fetches/submits scores via API
+import { readStorage, writeStorage } from '@randroids-dojo/vibekit';
+import { z } from 'zod';
 
 const API_BASE = '/api/leaderboard';
+const PLAYER_NAME_KEY = 'hoops_player_name';
+const PlayerNameSchema = z.string();
 
 export class Leaderboard {
   constructor() {
@@ -14,8 +18,10 @@ export class Leaderboard {
   }
 
   _loadName() {
+    const stored = readStorage(PLAYER_NAME_KEY, PlayerNameSchema);
+    if (stored !== null) return stored;
     try {
-      return localStorage.getItem('hoops_player_name') || '';
+      return localStorage.getItem(PLAYER_NAME_KEY) || '';
     } catch {
       return '';
     }
@@ -23,11 +29,7 @@ export class Leaderboard {
 
   saveName(name) {
     this.playerName = name;
-    try {
-      localStorage.setItem('hoops_player_name', name);
-    } catch {
-      // localStorage unavailable
-    }
+    writeStorage(PLAYER_NAME_KEY, name);
   }
 
   async fetchLeaderboard(type = 'alltime', limit = 20, mode = this.mode) {

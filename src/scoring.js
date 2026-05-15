@@ -1,6 +1,16 @@
 // Score, streak, and stage logic
 
+import { readStorage, writeStorage } from '@randroids-dojo/vibekit';
+import { z } from 'zod';
 import { STREAK, BONUS_TIME_THRESHOLD, getStageData } from './utils.js';
+
+const HIGH_SCORES_KEY = 'hoops_highscores';
+const HighScoreEntrySchema = z.object({
+  score: z.number(),
+  stage: z.number(),
+  date: z.string(),
+});
+const HighScoresSchema = z.array(HighScoreEntrySchema);
 
 export class Scoring {
   constructor() {
@@ -117,12 +127,7 @@ export class Scoring {
 
   // High scores
   _loadHighScores() {
-    try {
-      const data = localStorage.getItem('hoops_highscores');
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
+    return readStorage(HIGH_SCORES_KEY, HighScoresSchema) || [];
   }
 
   isHighScore() {
@@ -139,11 +144,7 @@ export class Scoring {
     this.highScores.push(entry);
     this.highScores.sort((a, b) => b.score - a.score);
     this.highScores = this.highScores.slice(0, 10);
-    try {
-      localStorage.setItem('hoops_highscores', JSON.stringify(this.highScores));
-    } catch {
-      // localStorage might be unavailable
-    }
+    writeStorage(HIGH_SCORES_KEY, this.highScores);
   }
 
   getBestScore() {

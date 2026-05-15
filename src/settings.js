@@ -1,6 +1,11 @@
 // Persisted player settings. Values survive reloads via localStorage.
+import { readStorage, writeStorage } from '@randroids-dojo/vibekit';
+import { z } from 'zod';
 
 const STORAGE_KEY = 'hoops-settings-v1';
+const SettingsSchema = z.object({
+  powerMeterSide: z.enum(['left', 'right']).optional(),
+});
 
 const DEFAULTS = {
   // Side of the screen the oscillating power meter is anchored to.
@@ -11,26 +16,12 @@ const DEFAULTS = {
 const state = { ...DEFAULTS };
 
 function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      if (parsed.powerMeterSide === 'left' || parsed.powerMeterSide === 'right') {
-        state.powerMeterSide = parsed.powerMeterSide;
-      }
-    }
-  } catch {
-    // ignore — fall back to defaults
-  }
+  const parsed = readStorage(STORAGE_KEY, SettingsSchema);
+  if (parsed?.powerMeterSide) state.powerMeterSide = parsed.powerMeterSide;
 }
 
 function save() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore quota / privacy-mode errors
-  }
+  writeStorage(STORAGE_KEY, state);
 }
 
 load();

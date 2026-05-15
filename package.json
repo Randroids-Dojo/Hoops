@@ -16,7 +16,8 @@
     "@randroids-dojo/vibekit": "github:Randroids-Dojo/VibeKit#v0.2.1",
     "@upstash/redis": "^1.37.0",
     "cannon-es": "^0.20.0",
-    "three": "^0.160.0"
+    "three": "^0.160.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.8.0",
