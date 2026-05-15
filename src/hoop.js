@@ -3,8 +3,8 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { updateRimScoringSensor } from '@randroids-dojo/vibekit';
 import { COURT, GROUP } from './world3d.js';
-import { updateRimScoringSensor } from './rimSensor.ts';
 
 const RIM_SEGMENTS = 22; // sphere segments forming the rim's collision torus
 const NET_STRANDS = 14;

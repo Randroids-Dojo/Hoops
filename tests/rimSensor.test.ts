@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { updateRimScoringSensor, type RimSensorState } from '../src/rimSensor';
+import { updateRimScoringSensor, type RimScoringSensorState } from '@randroids-dojo/vibekit';
 
 const center = { x: 0, y: 3, z: 0 };
 const rimRadius = 0.34;
 const rimTubeRadius = 0.025;
 const ballRadius = 0.12;
 
-function state(): RimSensorState {
+function state(): RimScoringSensorState {
   return { sensorEntered: false, rimHit: false, reportedRim: false };
 }
 
 function update(
-  sensor: RimSensorState,
+  sensor: RimScoringSensorState,
   previousPosition: { x: number; y: number; z: number },
   position: { x: number; y: number; z: number },
   velocity = { x: 0, y: -1, z: 0 },
