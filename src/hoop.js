@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COURT, GROUP } from './world3d.js';
+import { updateRimScoringSensor } from './rimSensor.ts';
 
 const RIM_SEGMENTS = 22; // sphere segments forming the rim's collision torus
 const NET_STRANDS = 14;
@@ -537,60 +538,20 @@ export class Hoop {
 
     const p = ball.body.position;
     const prev = ball.body.previousPosition || p;
-    const dx = p.x - cx;
-    const dz = p.z - cz;
-    const horiz = Math.sqrt(dx * dx + dz * dz);
+    const result = updateRimScoringSensor(ball, {
+      position: p,
+      previousPosition: prev,
+      velocity: ball.body.velocity,
+      center: { x: cx, y: cy, z: cz },
+      rimRadius: this.rimRadius,
+      rimTubeRadius: COURT.rimTube,
+      ballRadius: COURT.ballRadius,
+      rimContactAgeSec: performance.now() / 1000 - ball.lastRimContactTime,
+    });
 
-    // Mark rim contact only — backboard touches are tracked separately so
-    // bank shots are still recognised as 'score' (not downgraded swishes
-    // mid-air, and not promoted from 'miss' by a stray board kiss).
-    if ((performance.now() / 1000 - ball.lastRimContactTime) < 0.25) {
-      ball.rimHit = true;
-    }
+    if (result === 'swish' || result === 'score') this.triggerNetRipple();
 
-    // Ordered scoring gates inside the visible rim. A shot is armed only after
-    // it enters the above-rim shaft while descending, then it scores after
-    // crossing the lower net gate. This keeps net-only hits from below out.
-    const scoreRadius = this.rimRadius - COURT.rimTube - COURT.ballRadius * 0.35;
-    const inCylinder = horiz < scoreRadius;
-    const descending = ball.body.velocity.y < 0;
-
-    const crossedGateInCylinder = (gateY, radius = scoreRadius) => {
-      if (!descending || prev.y < gateY || p.y > gateY || prev.y === p.y) return false;
-      const t = (gateY - prev.y) / (p.y - prev.y);
-      const crossX = prev.x + (p.x - prev.x) * t;
-      const crossZ = prev.z + (p.z - prev.z) * t;
-      return Math.hypot(crossX - cx, crossZ - cz) < radius;
-    };
-
-    const entryGateY = cy + COURT.ballRadius * 0.35;
-    const exitGateY = cy - COURT.ballRadius * 0.9;
-    const inAboveRimShaft = inCylinder && p.y >= cy && descending;
-    const crossedEntryGate = crossedGateInCylinder(entryGateY);
-    const crossedExitGate = crossedGateInCylinder(exitGateY);
-
-    if (crossedEntryGate || inAboveRimShaft) {
-      ball.sensorEntered = true;
-    }
-
-    let result = null;
-    if (ball.sensorEntered && crossedExitGate) {
-      result = ball.rimHit ? 'score' : 'swish';
-      ball.sensorEntered = false;
-      this.triggerNetRipple();
-    } else if (ball.sensorEntered && ((!inCylinder && p.y < cy) || !descending)) {
-      ball.sensorEntered = false;
-    }
-
-    if (result) return result;
-
-    if (ball.rimHit && !ball.reportedRim) {
-      ball.reportedRim = true;
-      return 'rim';
-    }
-    if (!ball.rimHit) ball.reportedRim = false;
-
-    return null;
+    return result;
   }
 }
 
