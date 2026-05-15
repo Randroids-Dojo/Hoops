@@ -4,10 +4,12 @@
 <meta charset="utf-8">
 <title>Assess reusable leaderboard helpers for VibeKit server</title>
 <meta name="dot-title" content="Assess reusable leaderboard helpers for VibeKit server">
-<meta name="dot-status" content="open">
+<meta name="dot-status" content="closed">
 <meta name="dot-priority" content="3">
 <meta name="dot-issue-type" content="task">
 <meta name="dot-created-at" content="2026-05-15T12:28:07.368768-05:00">
+<meta name="dot-closed-at" content="2026-05-15T15:56:22.682302-05:00">
+<meta name="dot-close-reason" content="Assessed api/leaderboard.js. Full sorted leaderboard abstraction remains Hoops-local because the route&#39;s mode/meta validation is project-specific and server imports from raw-TS VibeKit are not safe for Hoops&#39; Vercel API path yet. Upstreamed the reusable part instead: VibeKit server getKv now supports UPSTASH_REDIS_REST_* env names in v0.2.3, and Hoops is bumped to that tag. Verified tests/typecheck/build/audit/diff-check.">
 </head>
 <body>
 <article>
