@@ -1,5 +1,6 @@
 // Touch/mouse input handling
 
+import { classifySwipeGesture, dragPowerNorm } from '@randroids-dojo/vibekit';
 import { MIN_SWIPE_DISTANCE } from './utils.js';
 
 export class Input {
@@ -69,20 +70,20 @@ export class Input {
     this.pointerDown = false;
 
     const pos = this._getPos(e);
-    const dx = pos.x - this.startX;
-    const dy = pos.y - this.startY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    const gesture = classifySwipeGesture(
+      { x: this.startX, y: this.startY },
+      pos,
+      { width: this.canvas.clientWidth || this.canvas.width, height: this.canvas.clientHeight || this.canvas.height },
+      { minDistance: MIN_SWIPE_DISTANCE },
+    );
 
     // Upward swipe = release the shot. Drag length controls the aim power
     // (size of the trajectory arc); the lateral component controls aim
     // direction. Reference = canvas client height so the displayed meter
     // and the actual throw stay consistent if the canvas is ever scaled.
-    if (distance > MIN_SWIPE_DISTANCE && dy < -MIN_SWIPE_DISTANCE) {
-      const ref = (this.canvas.clientHeight || this.canvas.height) * 0.55;
-      const dragPowerNorm = Math.min(Math.abs(dy) / ref, 1);
-      const lateralAngle = dx / Math.max(Math.abs(dy), 1); // -1..1 roughly
-      if (this.onThrow) this.onThrow(dragPowerNorm, lateralAngle);
-    } else if (distance < MIN_SWIPE_DISTANCE) {
+    if (gesture.kind === 'up-swipe') {
+      if (this.onThrow) this.onThrow(gesture.dragPowerNorm, gesture.lateralAngle);
+    } else if (gesture.kind === 'tap') {
       // It's a tap
       if (this.onTap) {
         this.onTap(pos.x, pos.y);
@@ -107,9 +108,10 @@ export class Input {
   // Used by the live trajectory arc so the player sees their aim grow as
   // they drag.
   getDragPowerNorm() {
-    const dy = this.getDragDelta().dy;
-    if (dy >= 0) return 0;
-    const ref = (this.canvas.clientHeight || this.canvas.height) * 0.55;
-    return Math.min(Math.abs(dy) / ref, 1);
+    return dragPowerNorm(
+      { x: this.startX, y: this.startY },
+      { x: this.currentX, y: this.currentY },
+      { width: this.canvas.clientWidth || this.canvas.width, height: this.canvas.clientHeight || this.canvas.height },
+    );
   }
 }
