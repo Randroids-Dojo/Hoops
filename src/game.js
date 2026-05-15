@@ -15,6 +15,18 @@ import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 import { settings } from './settings.js';
+import {
+  DISTANCE_MODE,
+  ENDLESS_MODE,
+  applyDistanceMiss,
+  applyDistanceScore,
+  applyEndlessMiss,
+  applyEndlessScore,
+  createDistanceRun,
+  createEndlessRun,
+  distanceProgress,
+  finishEndlessRun,
+} from './arcadeModes.ts';
 
 const BALL_POOL_SIZE = 5;
 
@@ -32,18 +44,6 @@ const GAME_MODE = {
   DISTANCE: 'distance',
   ENDLESS: 'endless',
 };
-const DISTANCE_MODE = {
-  scoreStepZ: -0.18,
-  missStepZ: 0.14,
-  winOffsetZ: -0.9,
-  loseOffsetZ: 0.42,
-};
-const ENDLESS_MODE = {
-  startTime: 18,
-  scoreBonus: 4,
-  swishBonus: 6,
-};
-
 export class Game {
   constructor(canvas, ctx, world3d) {
     this.canvas = canvas;
@@ -503,8 +503,8 @@ export class Game {
     this.state = 'playing';
     this.previousState = null;
     this.scoring.reset();
-    this.distanceRun = mode === GAME_MODE.DISTANCE ? this._createDistanceRun() : null;
-    this.endlessRun = mode === GAME_MODE.ENDLESS ? this._createEndlessRun() : null;
+    this.distanceRun = mode === GAME_MODE.DISTANCE ? createDistanceRun() : null;
+    this.endlessRun = mode === GAME_MODE.ENDLESS ? createEndlessRun() : null;
     if (this.endlessRun) {
       this.scoring.timeRemaining = ENDLESS_MODE.startTime;
       this.scoring.bonusTimeActive = false;
@@ -521,28 +521,6 @@ export class Game {
       mode === GAME_MODE.CLASSIC ? this.scoring.stageData.hoopAmplitude : 0,
     );
     this.hoop.setFireIntensity(0);
-  }
-
-  _createDistanceRun() {
-    return {
-      elapsed: 0,
-      winTimeMs: 0,
-      offsetZ: 0,
-      shots: 0,
-      makes: 0,
-      result: null,
-      progress: 0,
-    };
-  }
-
-  _createEndlessRun() {
-    return {
-      elapsed: 0,
-      elapsedMs: 0,
-      shots: 0,
-      makes: 0,
-      result: null,
-    };
   }
 
   _resetBallPool() {
@@ -777,8 +755,7 @@ export class Game {
   _onDistanceScore(isSwish) {
     const result = this.scoring.scoreShot(isSwish);
     const run = this.distanceRun;
-    run.shots++;
-    run.makes++;
+    const distanceResult = applyDistanceScore(run);
 
     this.hoop.triggerNetRipple();
     if (isSwish) this.audio.playSwish();
@@ -786,11 +763,9 @@ export class Game {
     if (result.streakMilestone) this.audio.playStreakMilestone();
     for (const text of result.notifications) this.hud.addNotification(text);
 
-    run.offsetZ = Math.max(DISTANCE_MODE.winOffsetZ, run.offsetZ + DISTANCE_MODE.scoreStepZ);
-    this._syncDistanceProgress();
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
 
-    if (run.offsetZ <= DISTANCE_MODE.winOffsetZ) {
+    if (distanceResult === 'win') {
       this._onDistanceWin();
     } else {
       this.hud.addNotification('DEEPER', 0.8);
@@ -802,8 +777,7 @@ export class Game {
     const result = this.scoring.scoreShot(isSwish);
     const run = this.endlessRun;
     const bonus = isSwish ? ENDLESS_MODE.swishBonus : ENDLESS_MODE.scoreBonus;
-    run.shots++;
-    run.makes++;
+    applyEndlessScore(run);
     this.scoring.timeRemaining += bonus;
 
     this.hoop.triggerNetRipple();
@@ -824,31 +798,25 @@ export class Game {
 
     if (this.gameMode === GAME_MODE.DISTANCE) {
       const run = this.distanceRun;
-      run.shots++;
-      run.offsetZ = Math.min(DISTANCE_MODE.loseOffsetZ, run.offsetZ + DISTANCE_MODE.missStepZ);
-      this._syncDistanceProgress();
-      if (run.offsetZ >= DISTANCE_MODE.loseOffsetZ) {
+      const distanceResult = applyDistanceMiss(run);
+      if (distanceResult === 'loss') {
         this._onDistanceLoss();
       } else {
         this.hud.addNotification('CLOSER', 0.8);
         this.hoop.setDepthOffset(run.offsetZ);
       }
     } else if (this.gameMode === GAME_MODE.ENDLESS) {
-      this.endlessRun.shots++;
+      applyEndlessMiss(this.endlessRun);
     }
   }
 
   _syncDistanceProgress() {
     const run = this.distanceRun;
-    const span = Math.abs(DISTANCE_MODE.winOffsetZ);
-    run.progress = clamp(Math.abs(Math.min(0, run.offsetZ)) / span, 0, 1);
+    run.progress = distanceProgress(run.offsetZ);
   }
 
   _onDistanceWin() {
     const run = this.distanceRun;
-    run.result = 'win';
-    run.progress = 1;
-    run.winTimeMs = Math.round(run.elapsed * 1000);
     this.hoop.setDepthOffset(run.offsetZ);
     this.audio.playStageClear();
     this.particles.emitCelebration(this.canvas.width, this.canvas.height);
@@ -870,8 +838,7 @@ export class Game {
 
   _onEndlessTimeUp() {
     const run = this.endlessRun;
-    run.result = 'timeup';
-    run.elapsedMs = Math.round(run.elapsed * 1000);
+    finishEndlessRun(run);
     this.audio.playTimeUp();
     this.screens.startFlash();
     this._resetBallPool();
