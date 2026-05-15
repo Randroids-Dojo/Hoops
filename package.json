@@ -4,13 +4,22 @@
   "description": "Set a high score in this arcade-style basketball shooter.",
   "private": true,
   "scripts": {
-    "dev": "vercel dev",
-    "start": "npx serve ."
+    "dev": "vite --host 0.0.0.0",
+    "vercel:dev": "vercel dev",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "npx serve dist"
   },
   "dependencies": {
     "@randroids-dojo/vibekit": "github:Randroids-Dojo/VibeKit#v0.2.0",
     "@upstash/redis": "^1.37.0",
     "cannon-es": "^0.20.0",
     "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
   }
 }
