@@ -754,12 +754,6 @@ export class Screens {
       }
     }
 
-    // Swipe hint — sits just above the bottom time-tabs row
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.font = '11px monospace';
-    ctx.fillText('← swipe to switch board →', w / 2, h - 56);
-
     ctx.restore();
   }
 
