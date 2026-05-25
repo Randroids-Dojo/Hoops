@@ -269,7 +269,7 @@ export class Screens {
     const modes = this.getTitleModeRects(canvas);
     const pulse = 0.86 + Math.sin(Date.now() * 0.004) * 0.14;
     this._drawTitleModeButton(ctx, modes.classic, 'CLASSIC', 'Score attack', COLORS.scoreGreen, pulse);
-    this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it deeper', COLORS.primary, 1);
+    this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it further', COLORS.primary, 1);
     this._drawTitleModeButton(ctx, modes.endless, 'ENDLESS', 'Shots add time', '#FFD700', 1);
 
     // High score
@@ -667,15 +667,24 @@ export class Screens {
       const colStage = w * 0.85;
       const isDistanceMode = leaderboard.mode === 'distance';
       const isEndlessMode = leaderboard.mode === 'endless';
-      const showMakesCol = isDistanceMode || isEndlessMode;
+
+      let primaryHeader = 'SCORE';
+      let secondaryHeader = 'STG';
+      if (isDistanceMode) {
+        primaryHeader = 'TIME';
+        secondaryHeader = 'MK';
+      } else if (isEndlessMode) {
+        primaryHeader = 'MK';
+        secondaryHeader = 'AT';
+      }
 
       ctx.textAlign = 'center';
       ctx.fillText('#', colRank, startY);
       ctx.textAlign = 'left';
       ctx.fillText('NAME', colName - 30, startY);
       ctx.textAlign = 'right';
-      ctx.fillText(isDistanceMode ? 'TIME' : 'SCORE', colScore + 20, startY);
-      ctx.fillText(showMakesCol ? 'MK' : 'STG', colStage + 10, startY);
+      ctx.fillText(primaryHeader, colScore + 20, startY);
+      ctx.fillText(secondaryHeader, colStage + 10, startY);
 
       // Divider
       ctx.strokeStyle = 'rgba(255,255,255,0.1)';
@@ -724,24 +733,26 @@ export class Screens {
         ctx.fillStyle = rowColor;
         ctx.fillText(entry.name || '???', colName - 30, y);
 
-        // Score
+        // Primary value (score / time / makes)
         ctx.textAlign = 'right';
         ctx.fillStyle = COLORS.scoreGreen;
         ctx.font = rank <= 3 ? 'bold 15px monospace' : '14px monospace';
         ctx.fillText(isDistanceMode ? formatTime(entry.score) : `${entry.score}`, colScore + 20, y);
 
-        // Stage / makes
+        // Secondary value (stage / makes / attempts)
         ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = '13px monospace';
-        ctx.fillText(showMakesCol ? `${entry.meta?.makes || '-'}` : `${entry.stage || '-'}`, colStage + 10, y);
+        let secondaryValue;
+        if (isDistanceMode) {
+          secondaryValue = `${entry.meta?.makes ?? '-'}`;
+        } else if (isEndlessMode) {
+          secondaryValue = `${entry.meta?.shots ?? '-'}`;
+        } else {
+          secondaryValue = `${entry.stage || '-'}`;
+        }
+        ctx.fillText(secondaryValue, colStage + 10, y);
       }
     }
-
-    // Swipe hint — sits just above the bottom time-tabs row
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.font = '11px monospace';
-    ctx.fillText('← swipe to switch board →', w / 2, h - 56);
 
     ctx.restore();
   }

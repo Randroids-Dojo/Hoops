@@ -398,7 +398,7 @@ export class Game {
     }
     if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
       return {
-        score: this.scoring.totalScore,
+        score: this.endlessRun.makes,
         stage: 1,
         mode: GAME_MODE.ENDLESS,
         meta: {
@@ -799,7 +799,7 @@ export class Game {
     if (distanceResult === 'win') {
       this._onDistanceWin();
     } else {
-      this.hud.addNotification('DEEPER', 0.8);
+      this.hud.addNotification('FURTHER', 0.8);
       this.hoop.setDepthOffset(run.offsetZ);
     }
   }
