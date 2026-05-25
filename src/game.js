@@ -790,18 +790,19 @@ export class Game {
   }
 
   _onEndlessScore(isSwish) {
-    const result = this.scoring.scoreShot(isSwish);
+    const result = this.scoring.scoreEndlessShot(isSwish);
     const run = this.endlessRun;
-    const bonus = isSwish ? ENDLESS_MODE.swishBonus : ENDLESS_MODE.scoreBonus;
+    const baseBonus = isSwish ? ENDLESS_MODE.swishBonus : ENDLESS_MODE.scoreBonus;
+    const timeBonus = baseBonus + result.streakTimeBonus;
     applyEndlessScore(run);
-    this.scoring.timeRemaining += bonus;
+    this.scoring.timeRemaining += timeBonus;
 
     this.hoop.triggerNetRipple();
     if (isSwish) this.audio.playSwish();
     this.audio.playScore();
     if (result.streakMilestone) this.audio.playStreakMilestone();
     for (const text of result.notifications) this.hud.addNotification(text);
-    this.hud.addNotification(`+${bonus}s`, 0.75);
+    this.hud.addNotification(`+${timeBonus}s`, 0.75);
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
   }
 
@@ -1088,18 +1089,18 @@ export class Game {
     ctx.fillText(`SURVIVED ${formatRunTime(Math.round(run.elapsed * 1000))}`, w / 2, padding + 70);
 
     ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
+    ctx.font = '12px monospace';
+    ctx.fillText('SCORE', w / 2, h * 0.12);
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.shadowColor = COLORS.scoreGreen;
     ctx.shadowBlur = 10;
     ctx.font = 'bold 44px monospace';
-    ctx.fillText(`${run.makes}`, w / 2, h * 0.16);
+    ctx.fillText(`${this.scoring.totalScore}`, w / 2, h * 0.16);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
-    ctx.font = '12px monospace';
-    ctx.fillText('MAKES', w / 2, h * 0.12);
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font = '14px monospace';
-    ctx.fillText(`POINTS: ${this.scoring.totalScore}`, w / 2, h * 0.19);
+    ctx.fillText(`${run.makes}/${run.shots}`, w / 2, h * 0.19);
     ctx.restore();
 
     this.hud._renderNotifications(ctx, w, h);
