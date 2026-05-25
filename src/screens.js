@@ -160,9 +160,9 @@ export class Screens {
 
   getLeaderboardModeTabRects(canvas) {
     const w = canvas.width;
-    const tabW = Math.min(w * 0.26, 110);
-    const tabH = 30;
-    const gap = 6;
+    const tabW = Math.min(w * 0.28, 120);
+    const tabH = 38;
+    const gap = 8;
     const totalW = tabW * 3 + gap * 2;
     const startX = w / 2 - totalW / 2;
     const y = 78;
@@ -175,12 +175,13 @@ export class Screens {
 
   getLeaderboardTabRects(canvas) {
     const w = canvas.width;
-    const tabW = Math.min(w * 0.3, 120);
+    const h = canvas.height;
+    const tabW = Math.min(w * 0.34, 140);
     const tabH = 30;
-    const y = 114;
+    const y = h - tabH - 16;
     return {
-      alltime: { x: w / 2 - tabW - 4, y, w: tabW, h: tabH },
-      daily: { x: w / 2 + 4, y, w: tabW, h: tabH },
+      alltime: { x: w / 2 - tabW, y, w: tabW, h: tabH },
+      daily: { x: w / 2, y, w: tabW, h: tabH },
     };
   }
 
@@ -561,7 +562,8 @@ export class Screens {
     ctx.font = 'bold 16px monospace';
     ctx.fillText('\u2190 BACK', backBtn.x + 8, backBtn.y + backBtn.h / 2 + 5);
 
-    // Mode tabs (classic / distance / endless)
+    // Mode tabs (classic / distance / endless) — primary navigation,
+    // filled-pill style with mode accent color when active.
     ctx.textAlign = 'center';
     const modeTabs = this.getLeaderboardModeTabRects(canvas);
     const modeLabels = { classic: 'CLASSIC', distance: 'DISTANCE', endless: 'ENDLESS' };
@@ -569,32 +571,61 @@ export class Screens {
     for (const [key, rect] of Object.entries(modeTabs)) {
       const isActive = leaderboard.mode === key;
       const accent = modeColors[key];
-      ctx.fillStyle = isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
-      ctx.strokeStyle = isActive ? accent : 'rgba(255,255,255,0.18)';
-      ctx.lineWidth = isActive ? 2 : 1;
-      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
+      if (isActive) {
+        ctx.fillStyle = accent;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = 16;
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+      }
+      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 8);
       ctx.fill();
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      ctx.fillStyle = isActive ? accent : 'rgba(255,255,255,0.5)';
-      ctx.font = `bold 13px monospace`;
+      ctx.fillStyle = isActive ? '#000' : 'rgba(255,255,255,0.55)';
+      ctx.font = `bold ${isActive ? 14 : 13}px monospace`;
       ctx.fillText(modeLabels[key], rect.x + rect.w / 2, rect.y + rect.h / 2 + 5);
     }
 
-    // Time tabs (alltime / daily)
+    // Time tabs (alltime / daily) — secondary filter at the bottom,
+    // rendered as a connected segmented control to set them apart.
     const tabs = this.getLeaderboardTabRects(canvas);
+    const tabKeys = ['alltime', 'daily'];
+    const segLeft = tabs.alltime.x;
+    const segTop = tabs.alltime.y;
+    const segW = tabs.alltime.w + tabs.daily.w;
+    const segH = tabs.alltime.h;
 
-    for (const [key, rect] of Object.entries(tabs)) {
+    // Outer container
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    this._roundRect(ctx, segLeft, segTop, segW, segH, segH / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    for (const key of tabKeys) {
+      const rect = tabs[key];
       const isActive = this.leaderboardTab === key;
-      ctx.fillStyle = isActive ? 'rgba(0, 229, 255, 0.25)' : 'rgba(255,255,255,0.05)';
-      ctx.strokeStyle = isActive ? COLORS.primary : 'rgba(255,255,255,0.2)';
-      ctx.lineWidth = isActive ? 2 : 1;
-      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
-      ctx.fill();
-      ctx.stroke();
+      if (isActive) {
+        ctx.save();
+        // Clip to outer container so the pill fits the rounded shape
+        this._roundRect(ctx, segLeft, segTop, segW, segH, segH / 2);
+        ctx.clip();
+        ctx.fillStyle = COLORS.primary;
+        this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, segH / 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
-      ctx.fillStyle = isActive ? COLORS.primary : 'rgba(255,255,255,0.5)';
-      ctx.font = `bold 14px monospace`;
+      ctx.fillStyle = isActive ? '#000' : 'rgba(255,255,255,0.55)';
+      ctx.font = 'bold 13px monospace';
       ctx.fillText(key === 'alltime' ? 'ALL TIME' : 'TODAY', rect.x + rect.w / 2, rect.y + rect.h / 2 + 5);
     }
 
@@ -603,9 +634,10 @@ export class Screens {
       ? (leaderboard.dailyEntries || [])
       : (leaderboard.allTimeEntries || []);
 
-    const startY = 164;
+    const startY = 144;
     const rowH = 32;
-    const maxVisible = Math.floor((h - startY - 40) / rowH);
+    const bottomReserve = 90; // time tabs + swipe hint + padding
+    const maxVisible = Math.floor((h - startY - bottomReserve) / rowH);
 
     if (leaderboard.loading) {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
@@ -705,11 +737,11 @@ export class Screens {
       }
     }
 
-    // Swipe hint
+    // Swipe hint — sits just above the bottom time-tabs row
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '12px monospace';
-    ctx.fillText('← swipe to switch board →', w / 2, h - 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.font = '11px monospace';
+    ctx.fillText('← swipe to switch board →', w / 2, h - 56);
 
     ctx.restore();
   }

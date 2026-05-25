@@ -200,7 +200,7 @@ export class Game {
 
     this.input.onSwipe = (direction) => {
       if (this.state === 'leaderboard') {
-        this._cycleLeaderboardMode(direction === 'right' ? -1 : 1);
+        this._cycleLeaderboardMode(direction === 'right' ? 1 : -1);
       }
     };
   }
