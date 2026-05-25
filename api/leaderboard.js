@@ -35,7 +35,7 @@ function boardConfig(mode = MODE_CLASSIC) {
       key: ENDLESS_LEADERBOARD_KEY,
       dailyPrefix: ENDLESS_DAILY_PREFIX,
       reverse: true,
-      maxScore: 2 * 60 * 60 * 1000,
+      maxScore: 999999,
     };
   }
   return {
@@ -68,7 +68,7 @@ function sanitizeMeta(meta, mode) {
     makes: clampInt(meta.makes, 0, 999),
     shots: clampInt(meta.shots, 0, 999),
   };
-  if (mode === MODE_ENDLESS) clean.points = clampInt(meta.points, 0, 999999);
+  if (mode === MODE_ENDLESS) clean.elapsedMs = clampInt(meta.elapsedMs, 0, 2 * 60 * 60 * 1000);
   return mode === MODE_DISTANCE || mode === MODE_ENDLESS ? clean : {};
 }
 

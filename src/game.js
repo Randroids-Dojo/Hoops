@@ -383,10 +383,14 @@ export class Game {
     }
     if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
       return {
-        score: this.endlessRun.elapsedMs,
+        score: this.scoring.totalScore,
         stage: 1,
         mode: GAME_MODE.ENDLESS,
-        meta: { makes: this.endlessRun.makes, shots: this.endlessRun.shots, points: this.scoring.totalScore },
+        meta: {
+          makes: this.endlessRun.makes,
+          shots: this.endlessRun.shots,
+          elapsedMs: this.endlessRun.elapsedMs,
+        },
       };
     }
     return {
