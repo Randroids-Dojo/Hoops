@@ -799,7 +799,7 @@ export class Game {
     if (distanceResult === 'win') {
       this._onDistanceWin();
     } else {
-      this.hud.addNotification('DEEPER', 0.8);
+      this.hud.addNotification('FURTHER', 0.8);
       this.hoop.setDepthOffset(run.offsetZ);
     }
   }
