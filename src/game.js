@@ -197,6 +197,23 @@ export class Game {
         this._handleLeaderboardTap(x, y);
       }
     };
+
+    this.input.onSwipe = (direction) => {
+      if (this.state === 'leaderboard') {
+        this._cycleLeaderboardMode(direction === 'right' ? 1 : -1);
+      }
+    };
+  }
+
+  _cycleLeaderboardMode(delta) {
+    const order = [GAME_MODE.CLASSIC, GAME_MODE.DISTANCE, GAME_MODE.ENDLESS];
+    const idx = order.indexOf(this.leaderboard.mode);
+    const nextIdx = ((idx === -1 ? 0 : idx) + delta + order.length) % order.length;
+    const nextMode = order[nextIdx];
+    if (nextMode !== this.leaderboard.mode) {
+      this.audio.playClick();
+      this.leaderboard.fetchBoth(nextMode);
+    }
   }
 
   _setupKeyboard() {
@@ -232,6 +249,12 @@ export class Game {
         if (e.key === 'Tab') {
           e.preventDefault();
           this.screens.toggleLeaderboardTab();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          this._cycleLeaderboardMode(-1);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          this._cycleLeaderboardMode(1);
         }
       }
     });
@@ -241,17 +264,9 @@ export class Game {
 
   _handleTitleTap(x, y) {
     // Check leaderboard button
-    const boardBtns = this.screens.getTitleLeaderboardRects(this.canvas);
-    if (this.screens._hitTest(x, y, boardBtns.classic)) {
-      this._openLeaderboard(GAME_MODE.CLASSIC);
-      return;
-    }
-    if (this.screens._hitTest(x, y, boardBtns.distance)) {
-      this._openLeaderboard(GAME_MODE.DISTANCE);
-      return;
-    }
-    if (this.screens._hitTest(x, y, boardBtns.endless)) {
-      this._openLeaderboard(GAME_MODE.ENDLESS);
+    const boardBtn = this.screens.getTitleLeaderboardRect(this.canvas);
+    if (this.screens._hitTest(x, y, boardBtn)) {
+      this._openLeaderboard(this.leaderboard.mode);
       return;
     }
     const modes = this.screens.getTitleModeRects(this.canvas);
@@ -383,10 +398,14 @@ export class Game {
     }
     if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
       return {
-        score: this.endlessRun.elapsedMs,
+        score: this.scoring.totalScore,
         stage: 1,
         mode: GAME_MODE.ENDLESS,
-        meta: { makes: this.endlessRun.makes, shots: this.endlessRun.shots, points: this.scoring.totalScore },
+        meta: {
+          makes: this.endlessRun.makes,
+          shots: this.endlessRun.shots,
+          elapsedMs: this.endlessRun.elapsedMs,
+        },
       };
     }
     return {
@@ -477,7 +496,19 @@ export class Game {
       return;
     }
 
-    // Tab buttons
+    // Mode tab buttons
+    const modeTabs = this.screens.getLeaderboardModeTabRects(this.canvas);
+    for (const [mode, rect] of Object.entries(modeTabs)) {
+      if (this.screens._hitTest(x, y, rect)) {
+        if (this.leaderboard.mode !== mode) {
+          this.audio.playClick();
+          this.leaderboard.fetchBoth(mode);
+        }
+        return;
+      }
+    }
+
+    // Time tab buttons
     const tabs = this.screens.getLeaderboardTabRects(this.canvas);
     if (this.screens._hitTest(x, y, tabs.alltime)) {
       this.screens.leaderboardTab = 'alltime';
@@ -774,18 +805,19 @@ export class Game {
   }
 
   _onEndlessScore(isSwish) {
-    const result = this.scoring.scoreShot(isSwish);
+    const result = this.scoring.scoreEndlessShot(isSwish);
     const run = this.endlessRun;
-    const bonus = isSwish ? ENDLESS_MODE.swishBonus : ENDLESS_MODE.scoreBonus;
+    const baseBonus = isSwish ? ENDLESS_MODE.swishBonus : ENDLESS_MODE.scoreBonus;
+    const timeBonus = baseBonus + result.streakTimeBonus;
     applyEndlessScore(run);
-    this.scoring.timeRemaining += bonus;
+    this.scoring.timeRemaining += timeBonus;
 
     this.hoop.triggerNetRipple();
     if (isSwish) this.audio.playSwish();
     this.audio.playScore();
     if (result.streakMilestone) this.audio.playStreakMilestone();
     for (const text of result.notifications) this.hud.addNotification(text);
-    this.hud.addNotification(`+${bonus}s`, 0.75);
+    this.hud.addNotification(`+${timeBonus}s`, 0.75);
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
   }
 
@@ -1072,18 +1104,18 @@ export class Game {
     ctx.fillText(`SURVIVED ${formatRunTime(Math.round(run.elapsed * 1000))}`, w / 2, padding + 70);
 
     ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
+    ctx.font = '12px monospace';
+    ctx.fillText('SCORE', w / 2, h * 0.12);
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.shadowColor = COLORS.scoreGreen;
     ctx.shadowBlur = 10;
     ctx.font = 'bold 44px monospace';
-    ctx.fillText(`${run.makes}`, w / 2, h * 0.16);
+    ctx.fillText(`${this.scoring.totalScore}`, w / 2, h * 0.16);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
-    ctx.font = '12px monospace';
-    ctx.fillText('MAKES', w / 2, h * 0.12);
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font = '14px monospace';
-    ctx.fillText(`POINTS: ${this.scoring.totalScore}`, w / 2, h * 0.19);
+    ctx.fillText(`${run.makes}/${run.shots}`, w / 2, h * 0.19);
     ctx.restore();
 
     this.hud._renderNotifications(ctx, w, h);

@@ -90,6 +90,25 @@ export class Scoring {
     this.streak = 0;
   }
 
+  // Endless mode: every make is worth exactly 1 point. Swish and streak
+  // bonuses are returned as extra seconds for the caller to add to the
+  // clock, never as bonus points.
+  scoreEndlessShot(isSwish) {
+    this.streak++;
+    this.totalScore += 1;
+
+    const streakTimeBonus = this.getStreakBonus();
+
+    const notifications = [];
+    if (isSwish) notifications.push('SWISH!');
+    if (this.streak === STREAK.HEATING_UP) notifications.push('HEATING UP!');
+    else if (this.streak === STREAK.ON_FIRE) notifications.push('ON FIRE!');
+    else if (this.streak === STREAK.BLAZING) notifications.push('BLAZING!');
+    else if (this.streak === STREAK.UNSTOPPABLE) notifications.push('UNSTOPPABLE!');
+
+    return { streakTimeBonus, notifications, streakMilestone: this._isStreakMilestone() };
+  }
+
   _isStreakMilestone() {
     return this.streak === STREAK.HEATING_UP ||
            this.streak === STREAK.ON_FIRE ||

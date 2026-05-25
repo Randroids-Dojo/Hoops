@@ -17,6 +17,7 @@ export class Input {
                          // power; the game's oscillating meter then nudges
                          // the actual launch power up or down at release.
     this.onTap = null;   // callback: (x, y) => void
+    this.onSwipe = null; // callback: (direction: 'left' | 'right') => void
     this.enabled = true;
 
     this._bindEvents();
@@ -87,6 +88,15 @@ export class Input {
       // It's a tap
       if (this.onTap) {
         this.onTap(pos.x, pos.y);
+      }
+    } else if (
+      gesture.distance > MIN_SWIPE_DISTANCE &&
+      Math.abs(gesture.dx) > Math.abs(gesture.dy)
+    ) {
+      // Horizontal swipe — surface direction so screens like the
+      // leaderboard can use it to switch between tabs.
+      if (this.onSwipe) {
+        this.onSwipe(gesture.dx > 0 ? 'right' : 'left');
       }
     }
   }

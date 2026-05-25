@@ -133,15 +133,8 @@ export class Screens {
     };
   }
 
-  getTitleLeaderboardRects(canvas) {
-    const base = this.getLeaderboardButtonRect(canvas);
-    const gap = 8;
-    const w = (base.w - gap * 2) / 3;
-    return {
-      classic: { x: base.x, y: base.y, w, h: base.h },
-      distance: { x: base.x + w + gap, y: base.y, w, h: base.h },
-      endless: { x: base.x + (w + gap) * 2, y: base.y, w, h: base.h },
-    };
+  getTitleLeaderboardRect(canvas) {
+    return this.getLeaderboardButtonRect(canvas);
   }
 
   getTitleModeRects(canvas) {
@@ -165,14 +158,30 @@ export class Screens {
     return { x: 10, y: 10, w: Math.min(w * 0.2, 80), h: 36 };
   }
 
-  getLeaderboardTabRects(canvas) {
+  getLeaderboardModeTabRects(canvas) {
     const w = canvas.width;
-    const tabW = Math.min(w * 0.3, 120);
-    const tabH = 32;
+    const tabW = Math.min(w * 0.28, 120);
+    const tabH = 38;
+    const gap = 8;
+    const totalW = tabW * 3 + gap * 2;
+    const startX = w / 2 - totalW / 2;
     const y = 78;
     return {
-      alltime: { x: w / 2 - tabW - 4, y, w: tabW, h: tabH },
-      daily: { x: w / 2 + 4, y, w: tabW, h: tabH },
+      classic: { x: startX, y, w: tabW, h: tabH },
+      distance: { x: startX + tabW + gap, y, w: tabW, h: tabH },
+      endless: { x: startX + (tabW + gap) * 2, y, w: tabW, h: tabH },
+    };
+  }
+
+  getLeaderboardTabRects(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const tabW = Math.min(w * 0.34, 140);
+    const tabH = 30;
+    const y = h - tabH - 16;
+    return {
+      alltime: { x: w / 2 - tabW, y, w: tabW, h: tabH },
+      daily: { x: w / 2, y, w: tabW, h: tabH },
     };
   }
 
@@ -273,19 +282,16 @@ export class Screens {
       ctx.shadowBlur = 0;
     }
 
-    const boards = this.getTitleLeaderboardRects(canvas);
-    for (const [key, rect] of Object.entries(boards)) {
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
-      ctx.strokeStyle = COLORS.primary;
-      ctx.lineWidth = 1.5;
-      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = COLORS.primary;
-      ctx.font = 'bold 10px monospace';
-      const label = key === 'classic' ? 'SCORE' : (key === 'distance' ? 'DEEP' : 'ENDLESS');
-      ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 4);
-    }
+    const board = this.getTitleLeaderboardRect(canvas);
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 1.5;
+    this._roundRect(ctx, board.x, board.y, board.w, board.h, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = COLORS.primary;
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('LEADERBOARDS', board.x + board.w / 2, board.y + board.h / 2 + 5);
 
     // Sound toggle hint
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
@@ -344,18 +350,18 @@ export class Screens {
     if (isEndless) {
       ctx.fillStyle = COLORS.white;
       ctx.font = '18px monospace';
-      ctx.fillText('SURVIVED', w / 2, h * 0.37);
+      ctx.fillText('FINAL SCORE', w / 2, h * 0.37);
 
       ctx.fillStyle = COLORS.scoreGreen;
       ctx.shadowColor = COLORS.scoreGreen;
       ctx.shadowBlur = 15;
-      ctx.font = `bold ${Math.min(w * 0.09, 54)}px monospace`;
-      ctx.fillText(formatTime(endlessRun.elapsedMs), w / 2, h * 0.45);
+      ctx.font = `bold ${Math.min(w * 0.1, 64)}px monospace`;
+      ctx.fillText(`${scoring.totalScore}`, w / 2, h * 0.45);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.font = '16px monospace';
-      ctx.fillText(`${endlessRun.makes}/${endlessRun.shots} makes`, w / 2, h * 0.53);
+      ctx.fillText(`${formatTime(endlessRun.elapsedMs)} • ${endlessRun.makes}/${endlessRun.shots} makes`, w / 2, h * 0.53);
     } else if (isDistance) {
       ctx.fillStyle = COLORS.white;
       ctx.font = '18px monospace';
@@ -452,10 +458,10 @@ export class Screens {
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.font = 'bold 28px monospace';
     if (endlessRun) {
-      ctx.fillText(`TIME: ${formatTime(endlessRun.elapsedMs)}`, w / 2, h * 0.33);
+      ctx.fillText(`SCORE: ${score}`, w / 2, h * 0.33);
       ctx.fillStyle = COLORS.primary;
       ctx.font = '16px monospace';
-      ctx.fillText(`${endlessRun.makes}/${endlessRun.shots} makes`, w / 2, h * 0.38);
+      ctx.fillText(`${formatTime(endlessRun.elapsedMs)} • ${endlessRun.makes}/${endlessRun.shots} makes`, w / 2, h * 0.38);
     } else if (distanceRun) {
       ctx.fillText(`TIME: ${formatTime(distanceRun.winTimeMs)}`, w / 2, h * 0.33);
       ctx.fillStyle = COLORS.primary;
@@ -545,11 +551,8 @@ export class Screens {
     ctx.fillStyle = COLORS.primary;
     ctx.shadowColor = COLORS.primary;
     ctx.shadowBlur = 20;
-    ctx.font = `bold ${Math.min(w * 0.08, 40)}px monospace`;
-    const title = leaderboard.mode === 'distance'
-      ? 'DISTANCE LEADERS'
-      : (leaderboard.mode === 'endless' ? 'ENDLESS LEADERS' : 'LEADERBOARD');
-    ctx.fillText(title, w / 2, 54);
+    ctx.font = `bold ${Math.min(w * 0.07, 34)}px monospace`;
+    ctx.fillText('LEADERBOARDS', w / 2, 48);
     ctx.shadowBlur = 0;
 
     // Back button
@@ -559,21 +562,70 @@ export class Screens {
     ctx.font = 'bold 16px monospace';
     ctx.fillText('\u2190 BACK', backBtn.x + 8, backBtn.y + backBtn.h / 2 + 5);
 
-    // Tabs
+    // Mode tabs (classic / distance / endless) — primary navigation,
+    // filled-pill style with mode accent color when active.
     ctx.textAlign = 'center';
-    const tabs = this.getLeaderboardTabRects(canvas);
-
-    for (const [key, rect] of Object.entries(tabs)) {
-      const isActive = this.leaderboardTab === key;
-      ctx.fillStyle = isActive ? 'rgba(0, 229, 255, 0.25)' : 'rgba(255,255,255,0.05)';
-      ctx.strokeStyle = isActive ? COLORS.primary : 'rgba(255,255,255,0.2)';
-      ctx.lineWidth = isActive ? 2 : 1;
-      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
+    const modeTabs = this.getLeaderboardModeTabRects(canvas);
+    const modeLabels = { classic: 'CLASSIC', distance: 'DISTANCE', endless: 'ENDLESS' };
+    const modeColors = { classic: COLORS.scoreGreen, distance: COLORS.primary, endless: '#FFD700' };
+    for (const [key, rect] of Object.entries(modeTabs)) {
+      const isActive = leaderboard.mode === key;
+      const accent = modeColors[key];
+      if (isActive) {
+        ctx.fillStyle = accent;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = 16;
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+      }
+      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 8);
       ctx.fill();
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      ctx.fillStyle = isActive ? COLORS.primary : 'rgba(255,255,255,0.5)';
-      ctx.font = `bold 14px monospace`;
+      ctx.fillStyle = isActive ? '#000' : 'rgba(255,255,255,0.55)';
+      ctx.font = `bold ${isActive ? 14 : 13}px monospace`;
+      ctx.fillText(modeLabels[key], rect.x + rect.w / 2, rect.y + rect.h / 2 + 5);
+    }
+
+    // Time tabs (alltime / daily) — secondary filter at the bottom,
+    // rendered as a connected segmented control to set them apart.
+    const tabs = this.getLeaderboardTabRects(canvas);
+    const tabKeys = ['alltime', 'daily'];
+    const segLeft = tabs.alltime.x;
+    const segTop = tabs.alltime.y;
+    const segW = tabs.alltime.w + tabs.daily.w;
+    const segH = tabs.alltime.h;
+
+    // Outer container
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    this._roundRect(ctx, segLeft, segTop, segW, segH, segH / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    for (const key of tabKeys) {
+      const rect = tabs[key];
+      const isActive = this.leaderboardTab === key;
+      if (isActive) {
+        ctx.save();
+        // Clip to outer container so the pill fits the rounded shape
+        this._roundRect(ctx, segLeft, segTop, segW, segH, segH / 2);
+        ctx.clip();
+        ctx.fillStyle = COLORS.primary;
+        this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, segH / 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.fillStyle = isActive ? '#000' : 'rgba(255,255,255,0.55)';
+      ctx.font = 'bold 13px monospace';
       ctx.fillText(key === 'alltime' ? 'ALL TIME' : 'TODAY', rect.x + rect.w / 2, rect.y + rect.h / 2 + 5);
     }
 
@@ -582,9 +634,10 @@ export class Screens {
       ? (leaderboard.dailyEntries || [])
       : (leaderboard.allTimeEntries || []);
 
-    const startY = 128;
+    const startY = 144;
     const rowH = 32;
-    const maxVisible = Math.floor((h - startY - 40) / rowH);
+    const bottomReserve = 90; // time tabs + swipe hint + padding
+    const maxVisible = Math.floor((h - startY - bottomReserve) / rowH);
 
     if (leaderboard.loading) {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
@@ -612,15 +665,17 @@ export class Screens {
       const colName = w * 0.35;
       const colScore = w * 0.62;
       const colStage = w * 0.85;
-      const timedMode = leaderboard.mode === 'distance' || leaderboard.mode === 'endless';
+      const isDistanceMode = leaderboard.mode === 'distance';
+      const isEndlessMode = leaderboard.mode === 'endless';
+      const showMakesCol = isDistanceMode || isEndlessMode;
 
       ctx.textAlign = 'center';
       ctx.fillText('#', colRank, startY);
       ctx.textAlign = 'left';
       ctx.fillText('NAME', colName - 30, startY);
       ctx.textAlign = 'right';
-      ctx.fillText(timedMode ? 'TIME' : 'SCORE', colScore + 20, startY);
-      ctx.fillText(timedMode ? 'MK' : 'STG', colStage + 10, startY);
+      ctx.fillText(isDistanceMode ? 'TIME' : 'SCORE', colScore + 20, startY);
+      ctx.fillText(showMakesCol ? 'MK' : 'STG', colStage + 10, startY);
 
       // Divider
       ctx.strokeStyle = 'rgba(255,255,255,0.1)';
@@ -673,14 +728,20 @@ export class Screens {
         ctx.textAlign = 'right';
         ctx.fillStyle = COLORS.scoreGreen;
         ctx.font = rank <= 3 ? 'bold 15px monospace' : '14px monospace';
-        ctx.fillText(timedMode ? formatTime(entry.score) : `${entry.score}`, colScore + 20, y);
+        ctx.fillText(isDistanceMode ? formatTime(entry.score) : `${entry.score}`, colScore + 20, y);
 
         // Stage / makes
         ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = '13px monospace';
-        ctx.fillText(timedMode ? `${entry.meta?.makes || '-'}` : `${entry.stage || '-'}`, colStage + 10, y);
+        ctx.fillText(showMakesCol ? `${entry.meta?.makes || '-'}` : `${entry.stage || '-'}`, colStage + 10, y);
       }
     }
+
+    // Swipe hint — sits just above the bottom time-tabs row
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.font = '11px monospace';
+    ctx.fillText('← swipe to switch board →', w / 2, h - 56);
 
     ctx.restore();
   }
