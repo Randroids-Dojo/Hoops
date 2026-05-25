@@ -165,11 +165,26 @@ export class Screens {
     return { x: 10, y: 10, w: Math.min(w * 0.2, 80), h: 36 };
   }
 
+  getLeaderboardModeTabRects(canvas) {
+    const w = canvas.width;
+    const tabW = Math.min(w * 0.26, 110);
+    const tabH = 30;
+    const gap = 6;
+    const totalW = tabW * 3 + gap * 2;
+    const startX = w / 2 - totalW / 2;
+    const y = 78;
+    return {
+      classic: { x: startX, y, w: tabW, h: tabH },
+      distance: { x: startX + tabW + gap, y, w: tabW, h: tabH },
+      endless: { x: startX + (tabW + gap) * 2, y, w: tabW, h: tabH },
+    };
+  }
+
   getLeaderboardTabRects(canvas) {
     const w = canvas.width;
     const tabW = Math.min(w * 0.3, 120);
-    const tabH = 32;
-    const y = 78;
+    const tabH = 30;
+    const y = 114;
     return {
       alltime: { x: w / 2 - tabW - 4, y, w: tabW, h: tabH },
       daily: { x: w / 2 + 4, y, w: tabW, h: tabH },
@@ -545,11 +560,8 @@ export class Screens {
     ctx.fillStyle = COLORS.primary;
     ctx.shadowColor = COLORS.primary;
     ctx.shadowBlur = 20;
-    ctx.font = `bold ${Math.min(w * 0.08, 40)}px monospace`;
-    const title = leaderboard.mode === 'distance'
-      ? 'DISTANCE LEADERS'
-      : (leaderboard.mode === 'endless' ? 'ENDLESS LEADERS' : 'LEADERBOARD');
-    ctx.fillText(title, w / 2, 54);
+    ctx.font = `bold ${Math.min(w * 0.07, 34)}px monospace`;
+    ctx.fillText('LEADERBOARDS', w / 2, 48);
     ctx.shadowBlur = 0;
 
     // Back button
@@ -559,8 +571,27 @@ export class Screens {
     ctx.font = 'bold 16px monospace';
     ctx.fillText('\u2190 BACK', backBtn.x + 8, backBtn.y + backBtn.h / 2 + 5);
 
-    // Tabs
+    // Mode tabs (classic / distance / endless)
     ctx.textAlign = 'center';
+    const modeTabs = this.getLeaderboardModeTabRects(canvas);
+    const modeLabels = { classic: 'CLASSIC', distance: 'DISTANCE', endless: 'ENDLESS' };
+    const modeColors = { classic: COLORS.scoreGreen, distance: COLORS.primary, endless: '#FFD700' };
+    for (const [key, rect] of Object.entries(modeTabs)) {
+      const isActive = leaderboard.mode === key;
+      const accent = modeColors[key];
+      ctx.fillStyle = isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
+      ctx.strokeStyle = isActive ? accent : 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = isActive ? 2 : 1;
+      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isActive ? accent : 'rgba(255,255,255,0.5)';
+      ctx.font = `bold 13px monospace`;
+      ctx.fillText(modeLabels[key], rect.x + rect.w / 2, rect.y + rect.h / 2 + 5);
+    }
+
+    // Time tabs (alltime / daily)
     const tabs = this.getLeaderboardTabRects(canvas);
 
     for (const [key, rect] of Object.entries(tabs)) {
@@ -582,7 +613,7 @@ export class Screens {
       ? (leaderboard.dailyEntries || [])
       : (leaderboard.allTimeEntries || []);
 
-    const startY = 128;
+    const startY = 164;
     const rowH = 32;
     const maxVisible = Math.floor((h - startY - 40) / rowH);
 

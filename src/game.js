@@ -481,7 +481,19 @@ export class Game {
       return;
     }
 
-    // Tab buttons
+    // Mode tab buttons
+    const modeTabs = this.screens.getLeaderboardModeTabRects(this.canvas);
+    for (const [mode, rect] of Object.entries(modeTabs)) {
+      if (this.screens._hitTest(x, y, rect)) {
+        if (this.leaderboard.mode !== mode) {
+          this.audio.playClick();
+          this.leaderboard.fetchBoth(mode);
+        }
+        return;
+      }
+    }
+
+    // Time tab buttons
     const tabs = this.screens.getLeaderboardTabRects(this.canvas);
     if (this.screens._hitTest(x, y, tabs.alltime)) {
       this.screens.leaderboardTab = 'alltime';
