@@ -269,7 +269,7 @@ export class Screens {
     const modes = this.getTitleModeRects(canvas);
     const pulse = 0.86 + Math.sin(Date.now() * 0.004) * 0.14;
     this._drawTitleModeButton(ctx, modes.classic, 'CLASSIC', 'Score attack', COLORS.scoreGreen, pulse);
-    this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it deeper', COLORS.primary, 1);
+    this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it further', COLORS.primary, 1);
     this._drawTitleModeButton(ctx, modes.endless, 'ENDLESS', 'Shots add time', '#FFD700', 1);
 
     // High score
