@@ -133,15 +133,8 @@ export class Screens {
     };
   }
 
-  getTitleLeaderboardRects(canvas) {
-    const base = this.getLeaderboardButtonRect(canvas);
-    const gap = 8;
-    const w = (base.w - gap * 2) / 3;
-    return {
-      classic: { x: base.x, y: base.y, w, h: base.h },
-      distance: { x: base.x + w + gap, y: base.y, w, h: base.h },
-      endless: { x: base.x + (w + gap) * 2, y: base.y, w, h: base.h },
-    };
+  getTitleLeaderboardRect(canvas) {
+    return this.getLeaderboardButtonRect(canvas);
   }
 
   getTitleModeRects(canvas) {
@@ -288,19 +281,16 @@ export class Screens {
       ctx.shadowBlur = 0;
     }
 
-    const boards = this.getTitleLeaderboardRects(canvas);
-    for (const [key, rect] of Object.entries(boards)) {
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
-      ctx.strokeStyle = COLORS.primary;
-      ctx.lineWidth = 1.5;
-      this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = COLORS.primary;
-      ctx.font = 'bold 10px monospace';
-      const label = key === 'classic' ? 'SCORE' : (key === 'distance' ? 'DEEP' : 'ENDLESS');
-      ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 4);
-    }
+    const board = this.getTitleLeaderboardRect(canvas);
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 1.5;
+    this._roundRect(ctx, board.x, board.y, board.w, board.h, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = COLORS.primary;
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('LEADERBOARDS', board.x + board.w / 2, board.y + board.h / 2 + 5);
 
     // Sound toggle hint
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
@@ -714,6 +704,12 @@ export class Screens {
         ctx.fillText(showMakesCol ? `${entry.meta?.makes || '-'}` : `${entry.stage || '-'}`, colStage + 10, y);
       }
     }
+
+    // Swipe hint
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '12px monospace';
+    ctx.fillText('← swipe to switch board →', w / 2, h - 16);
 
     ctx.restore();
   }

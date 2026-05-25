@@ -197,6 +197,23 @@ export class Game {
         this._handleLeaderboardTap(x, y);
       }
     };
+
+    this.input.onSwipe = (direction) => {
+      if (this.state === 'leaderboard') {
+        this._cycleLeaderboardMode(direction === 'right' ? -1 : 1);
+      }
+    };
+  }
+
+  _cycleLeaderboardMode(delta) {
+    const order = [GAME_MODE.CLASSIC, GAME_MODE.DISTANCE, GAME_MODE.ENDLESS];
+    const idx = order.indexOf(this.leaderboard.mode);
+    const nextIdx = ((idx === -1 ? 0 : idx) + delta + order.length) % order.length;
+    const nextMode = order[nextIdx];
+    if (nextMode !== this.leaderboard.mode) {
+      this.audio.playClick();
+      this.leaderboard.fetchBoth(nextMode);
+    }
   }
 
   _setupKeyboard() {
@@ -232,6 +249,12 @@ export class Game {
         if (e.key === 'Tab') {
           e.preventDefault();
           this.screens.toggleLeaderboardTab();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          this._cycleLeaderboardMode(-1);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          this._cycleLeaderboardMode(1);
         }
       }
     });
@@ -241,17 +264,9 @@ export class Game {
 
   _handleTitleTap(x, y) {
     // Check leaderboard button
-    const boardBtns = this.screens.getTitleLeaderboardRects(this.canvas);
-    if (this.screens._hitTest(x, y, boardBtns.classic)) {
-      this._openLeaderboard(GAME_MODE.CLASSIC);
-      return;
-    }
-    if (this.screens._hitTest(x, y, boardBtns.distance)) {
-      this._openLeaderboard(GAME_MODE.DISTANCE);
-      return;
-    }
-    if (this.screens._hitTest(x, y, boardBtns.endless)) {
-      this._openLeaderboard(GAME_MODE.ENDLESS);
+    const boardBtn = this.screens.getTitleLeaderboardRect(this.canvas);
+    if (this.screens._hitTest(x, y, boardBtn)) {
+      this._openLeaderboard(this.leaderboard.mode);
       return;
     }
     const modes = this.screens.getTitleModeRects(this.canvas);
