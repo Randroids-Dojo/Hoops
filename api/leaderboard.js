@@ -35,7 +35,7 @@ function boardConfig(mode = MODE_CLASSIC) {
       key: ENDLESS_LEADERBOARD_KEY,
       dailyPrefix: ENDLESS_DAILY_PREFIX,
       reverse: true,
-      maxScore: 999999,
+      maxScore: 999,
     };
   }
   return {

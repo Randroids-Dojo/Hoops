@@ -398,7 +398,7 @@ export class Game {
     }
     if (this.gameMode === GAME_MODE.ENDLESS && this.endlessRun?.result === 'timeup') {
       return {
-        score: this.scoring.totalScore,
+        score: this.endlessRun.makes,
         stage: 1,
         mode: GAME_MODE.ENDLESS,
         meta: {
