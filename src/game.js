@@ -930,7 +930,7 @@ export class Game {
 
     if (this.state === 'title') {
       this.particles.render(ctx);
-      this.screens.renderTitle(ctx, canvas, this.scoring.getBestScore());
+      this.screens.renderTitle(ctx, canvas);
       return;
     }
 

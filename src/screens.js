@@ -241,7 +241,7 @@ export class Screens {
 
   // --- Render methods ---
 
-  renderTitle(ctx, canvas, bestScore) {
+  renderTitle(ctx, canvas) {
     const w = canvas.width;
     const h = canvas.height;
 
@@ -271,16 +271,6 @@ export class Screens {
     this._drawTitleModeButton(ctx, modes.classic, 'CLASSIC', 'Score attack', COLORS.scoreGreen, pulse);
     this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it further', COLORS.primary, 1);
     this._drawTitleModeButton(ctx, modes.endless, 'ENDLESS', 'Shots add time', '#FFD700', 1);
-
-    // High score
-    if (bestScore > 0) {
-      ctx.fillStyle = COLORS.scoreGreen;
-      ctx.shadowColor = COLORS.scoreGreen;
-      ctx.shadowBlur = 8;
-      ctx.font = '16px monospace';
-      ctx.fillText(`BEST: ${bestScore}`, w / 2, modes.endless.y + modes.endless.h + 20);
-      ctx.shadowBlur = 0;
-    }
 
     const board = this.getTitleLeaderboardRect(canvas);
     ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
