@@ -21,10 +21,21 @@ function resize() {
   // unaffected by the keyboard, so genuine rotation/resize still updates.
   const nameInput = document.getElementById('nameEntryInput');
   const keyboardOpen = nameInput && document.activeElement === nameInput;
-  const widthChanged = canvas.width !== window.innerWidth;
+  const newW = window.innerWidth;
+  const newH = window.innerHeight;
+  const widthChanged = canvas.width !== newW;
   if (keyboardOpen && !widthChanged) return;
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  canvas.width = newW;
+  canvas.height = newH;
+  // Pin the CSS pixel size too, not just the drawing buffer. Otherwise
+  // the canvas (with width/height: 100%) follows the visual viewport
+  // when the keyboard slides in and out, compressing the rendered
+  // content for a frame. Explicit px sizes keep the rendered area
+  // fixed, so the keyboard simply overlays the bottom of the canvas.
+  canvas.style.width = newW + 'px';
+  canvas.style.height = newH + 'px';
+  canvas3d.style.width = newW + 'px';
+  canvas3d.style.height = newH + 'px';
 }
 
 window.addEventListener('resize', resize);
