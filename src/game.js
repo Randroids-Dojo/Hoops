@@ -1141,10 +1141,10 @@ export class Game {
   // the player sees their aim take shape in real time. Meter timing is
   // applied separately at release — this preview assumes a perfect-meter
   // (neutral) release.
-  _predictShot(delta) {
+  _predictShot() {
     const norm = this.input.getDragPowerNorm();
     const power = MIN_THROW_SPEED + norm * (MAX_THROW_SPEED - MIN_THROW_SPEED);
-    const lateralAngle = delta.dx / Math.max(Math.abs(delta.dy), 1);
+    const lateralAngle = this.input.getLateralNorm();
     const v = launchVector(power, lateralAngle);
 
     const spawn = COURT.ballSpawn;
@@ -1295,7 +1295,7 @@ export class Game {
     if (delta.dy >= 0) return; // require upward drag to indicate intent
 
     const start = this.activeBall.getScreenPos();
-    const pred = this._predictShot(delta);
+    const pred = this._predictShot();
     const outcomeColors = { swish: COLORS.scoreGreen, rim: '#FFCC00', miss: '#FF4D4D' };
     const arcColor = outcomeColors[pred.outcome];
 
