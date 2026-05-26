@@ -94,6 +94,7 @@ export class Game {
 
     this._setupInput();
     this._setupKeyboard();
+    this._setupNameEntryInput();
     this._createPauseButton();
     initFeedbackFab();
   }
@@ -240,8 +241,10 @@ export class Game {
         }
       }
 
-      // Name entry keyboard controls
-      if (this.state === 'nameEntry') {
+      // Name entry keyboard controls. When the hidden mobile-keyboard input
+      // is focused, its own beforeinput/input listeners handle character
+      // keys — skip here so we don't double-process.
+      if (this.state === 'nameEntry' && document.activeElement !== this.nameEntryInput) {
         this._handleNameEntryKey(e.key);
       }
 
@@ -299,6 +302,75 @@ export class Game {
 
   // --- Name entry ---
 
+  // Hidden text input that mirrors the canvas-rendered initials. Focusing it
+  // is what makes mobile browsers raise the on-screen keyboard; typing into
+  // it is routed back into the canvas state via beforeinput/input events.
+  _setupNameEntryInput() {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'nameEntryInput';
+    input.autocomplete = 'off';
+    input.autocapitalize = 'characters';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'High score initials');
+    // font-size: 16px prevents iOS auto-zoom on focus. The element must be
+    // in-viewport (not display:none) for iOS to actually open the keyboard.
+    input.style.cssText =
+      'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;font-size:16px;background:transparent;color:transparent;caret-color:transparent;pointer-events:none;';
+    document.body.appendChild(input);
+    this.nameEntryInput = input;
+
+    const VALID = /[A-Z0-9 ]/;
+
+    // Backspace + Enter don't change input.value (input.value stays empty
+    // because the `input` handler below resets it after every keystroke),
+    // so we catch those via beforeinput. Character keystrokes are processed
+    // in the input handler so we never double-count them.
+    input.addEventListener('beforeinput', (e) => {
+      if (this.state !== 'nameEntry') return;
+      if (e.inputType === 'deleteContentBackward') {
+        e.preventDefault();
+        this.screens.nameBackCursor();
+        this.audio.playClick();
+      } else if (e.inputType === 'insertLineBreak') {
+        e.preventDefault();
+        this._submitName();
+      }
+    });
+
+    input.addEventListener('input', () => {
+      if (this.state !== 'nameEntry') {
+        input.value = '';
+        return;
+      }
+      if (input.value.length > 0) {
+        for (const ch of input.value) {
+          const upper = ch.toUpperCase();
+          if (VALID.test(upper)) {
+            this.screens.nameSetChar(upper);
+            this.audio.playClick();
+          }
+        }
+        input.value = '';
+      }
+    });
+  }
+
+  _focusNameEntryInput() {
+    if (!this.nameEntryInput) return;
+    try {
+      this.nameEntryInput.focus({ preventScroll: true });
+    } catch {
+      this.nameEntryInput.focus();
+    }
+  }
+
+  _blurNameEntryInput() {
+    if (!this.nameEntryInput) return;
+    this.nameEntryInput.value = '';
+    this.nameEntryInput.blur();
+  }
+
   _handleNameEntryKey(key) {
     if (key === 'Enter') {
       this._submitName();
@@ -338,13 +410,14 @@ export class Game {
       return;
     }
 
-    // Check character slots - tap to select that slot
+    // Check character slots - tap to select that slot and open the keyboard
     const charRects = this.screens.getNameEntryCharRects(this.canvas);
     for (let i = 0; i < 3; i++) {
       const r = charRects[i];
       if (this.screens._hitTest(x, y, r)) {
         this.screens.namePos = i;
         this.audio.playClick();
+        this._focusNameEntryInput();
         return;
       }
     }
@@ -353,6 +426,7 @@ export class Game {
   async _submitName() {
     if (this.submittingName) return;
     this.submittingName = true;
+    this._blurNameEntryInput();
     try {
       const name = this.screens.getEnteredName();
       this.audio.playClick();
@@ -402,6 +476,7 @@ export class Game {
 
   _skipNameEntry() {
     this.audio.playClick();
+    this._blurNameEntryInput();
     // Save locally but don't submit to global leaderboard
     this.state = 'gameOver';
   }
@@ -839,6 +914,7 @@ export class Game {
     this._resetBallPool();
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
+    this._focusNameEntryInput();
     this.globalRank = null;
     this.submittingName = false;
   }
@@ -860,6 +936,7 @@ export class Game {
     this._resetBallPool();
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
+    this._focusNameEntryInput();
     this.globalRank = null;
     this.submittingName = false;
   }
@@ -881,6 +958,7 @@ export class Game {
     // Go to name entry screen instead of directly to game over
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
+    this._focusNameEntryInput();
     this.globalRank = null;
   }
 
