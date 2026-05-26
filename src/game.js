@@ -124,6 +124,7 @@ export class Game {
       const now = performance.now() / 1000;
       if (otherBody.userData?.isRim) ball.lastRimContactTime = now;
       else if (otherBody.userData?.isBackboard) ball.lastBackboardContactTime = now;
+      else if (otherBody.userData?.isFloor) ball.touchedFloor = true;
     });
   }
 
