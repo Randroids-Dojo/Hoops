@@ -24,7 +24,6 @@ export class Screens {
     this.nameChars = ['A', 'A', 'A'];
     this.namePos = 0; // cursor position 0-2
     this.nameConfirmed = false;
-    this.nameScrollCooldown = 0;
 
     // Leaderboard state
     this.leaderboardTab = 'alltime'; // 'alltime' or 'daily'
@@ -36,9 +35,6 @@ export class Screens {
     if (this.flashAlpha > 0) {
       this.flashAlpha -= dt * 3;
       if (this.flashAlpha < 0) this.flashAlpha = 0;
-    }
-    if (this.nameScrollCooldown > 0) {
-      this.nameScrollCooldown -= dt;
     }
   }
 
@@ -73,26 +69,6 @@ export class Screens {
     }
   }
 
-  nameScrollUp() {
-    if (this.nameScrollCooldown > 0) return;
-    const c = this.nameChars[this.namePos];
-    const code = c.charCodeAt(0);
-    // Cycle A-Z, 0-9, space
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ';
-    const idx = chars.indexOf(c);
-    this.nameChars[this.namePos] = chars[(idx + 1) % chars.length];
-    this.nameScrollCooldown = 0.12;
-  }
-
-  nameScrollDown() {
-    if (this.nameScrollCooldown > 0) return;
-    const c = this.nameChars[this.namePos];
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ';
-    const idx = chars.indexOf(c);
-    this.nameChars[this.namePos] = chars[(idx - 1 + chars.length) % chars.length];
-    this.nameScrollCooldown = 0.12;
-  }
-
   nameAdvanceCursor() {
     if (this.namePos < 2) {
       this.namePos++;
@@ -104,6 +80,15 @@ export class Screens {
   nameBackCursor() {
     if (this.namePos > 0) {
       this.namePos--;
+    }
+  }
+
+  nameSetChar(char) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ';
+    if (!chars.includes(char)) return;
+    this.nameChars[this.namePos] = char;
+    if (this.namePos < 2) {
+      this.namePos++;
     }
   }
 
@@ -475,14 +460,6 @@ export class Screens {
       ctx.fill();
       ctx.stroke();
 
-      // Up arrow
-      if (isActive) {
-        ctx.fillStyle = COLORS.primary;
-        ctx.font = '18px monospace';
-        ctx.fillText('\u25B2', r.x + r.w / 2, r.y - 8);
-        ctx.fillText('\u25BC', r.x + r.w / 2, r.y + r.h + 22);
-      }
-
       // Character
       ctx.fillStyle = isActive ? COLORS.white : 'rgba(255,255,255,0.7)';
       ctx.font = `bold 36px monospace`;
@@ -501,11 +478,6 @@ export class Screens {
     ctx.fillStyle = COLORS.scoreGreen;
     ctx.font = 'bold 18px monospace';
     ctx.fillText('SUBMIT', w / 2, confirmRect.y + confirmRect.h / 2 + 6);
-
-    // Controls hint
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.font = '12px monospace';
-    ctx.fillText('Tap arrows to change \u2022 Tap letter to advance', w / 2, h * 0.79);
 
     // Skip button
     const skipRect = this.getNameEntrySkipRect(canvas);

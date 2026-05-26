@@ -13,8 +13,29 @@ if (!canvas3d || !canvas) {
 const ctx = canvas.getContext('2d');
 
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  // While the mobile keyboard is open (the high-score initials input is
+  // focused), Android shrinks window.innerHeight. Resizing the canvas to
+  // that smaller height reflows everything we draw at fractional-y
+  // coordinates, making the slots appear to jump as the keyboard
+  // animates in. Skip those keyboard-induced height changes — width is
+  // unaffected by the keyboard, so genuine rotation/resize still updates.
+  const nameInput = document.getElementById('nameEntryInput');
+  const keyboardOpen = nameInput && document.activeElement === nameInput;
+  const newW = window.innerWidth;
+  const newH = window.innerHeight;
+  const widthChanged = canvas.width !== newW;
+  if (keyboardOpen && !widthChanged) return;
+  canvas.width = newW;
+  canvas.height = newH;
+  // Pin the CSS pixel size too, not just the drawing buffer. Otherwise
+  // the canvas (with width/height: 100%) follows the visual viewport
+  // when the keyboard slides in and out, compressing the rendered
+  // content for a frame. Explicit px sizes keep the rendered area
+  // fixed, so the keyboard simply overlays the bottom of the canvas.
+  canvas.style.width = newW + 'px';
+  canvas.style.height = newH + 'px';
+  canvas3d.style.width = newW + 'px';
+  canvas3d.style.height = newH + 'px';
 }
 
 window.addEventListener('resize', resize);
