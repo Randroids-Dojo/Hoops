@@ -270,6 +270,12 @@ export class Game {
       this._openLeaderboard(this.leaderboard.mode);
       return;
     }
+    // Store button — placeholder; click feedback only for now.
+    const storeBtn = this.screens.getTitleStoreRect(this.canvas);
+    if (this.screens._hitTest(x, y, storeBtn)) {
+      this.audio.playClick();
+      return;
+    }
     const modes = this.screens.getTitleModeRects(this.canvas);
     if (this.screens._hitTest(x, y, modes.endless)) {
       this.startGame(GAME_MODE.ENDLESS);
