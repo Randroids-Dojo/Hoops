@@ -241,7 +241,7 @@ export class Screens {
 
   // --- Render methods ---
 
-  renderTitle(ctx, canvas, bestScore) {
+  renderTitle(ctx, canvas) {
     const w = canvas.width;
     const h = canvas.height;
 
@@ -272,16 +272,6 @@ export class Screens {
     this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it further', COLORS.primary, 1);
     this._drawTitleModeButton(ctx, modes.endless, 'ENDLESS', 'Shots add time', '#FFD700', 1);
 
-    // High score
-    if (bestScore > 0) {
-      ctx.fillStyle = COLORS.scoreGreen;
-      ctx.shadowColor = COLORS.scoreGreen;
-      ctx.shadowBlur = 8;
-      ctx.font = '16px monospace';
-      ctx.fillText(`BEST: ${bestScore}`, w / 2, modes.endless.y + modes.endless.h + 20);
-      ctx.shadowBlur = 0;
-    }
-
     const board = this.getTitleLeaderboardRect(canvas);
     ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
     ctx.strokeStyle = COLORS.primary;
@@ -292,11 +282,6 @@ export class Screens {
     ctx.fillStyle = COLORS.primary;
     ctx.font = 'bold 13px monospace';
     ctx.fillText('LEADERBOARDS', board.x + board.w / 2, board.y + board.h / 2 + 5);
-
-    // Sound toggle hint
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '12px monospace';
-    ctx.fillText('Press M to toggle sound', w / 2, h * 0.95);
 
     ctx.restore();
   }
@@ -520,12 +505,7 @@ export class Screens {
     // Controls hint
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '12px monospace';
-    const isMobile = 'ontouchstart' in window;
-    if (isMobile) {
-      ctx.fillText('Tap arrows to change \u2022 Tap letter to advance', w / 2, h * 0.79);
-    } else {
-      ctx.fillText('\u2191\u2193 change letter \u2022 \u2192 next \u2022 ENTER submit', w / 2, h * 0.79);
-    }
+    ctx.fillText('Tap arrows to change \u2022 Tap letter to advance', w / 2, h * 0.79);
 
     // Skip button
     const skipRect = this.getNameEntrySkipRect(canvas);
