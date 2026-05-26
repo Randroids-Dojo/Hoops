@@ -283,11 +283,6 @@ export class Screens {
     ctx.font = 'bold 13px monospace';
     ctx.fillText('LEADERBOARDS', board.x + board.w / 2, board.y + board.h / 2 + 5);
 
-    // Sound toggle hint
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '12px monospace';
-    ctx.fillText('Press M to toggle sound', w / 2, h * 0.95);
-
     ctx.restore();
   }
 
@@ -510,12 +505,7 @@ export class Screens {
     // Controls hint
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '12px monospace';
-    const isMobile = 'ontouchstart' in window;
-    if (isMobile) {
-      ctx.fillText('Tap arrows to change \u2022 Tap letter to advance', w / 2, h * 0.79);
-    } else {
-      ctx.fillText('\u2191\u2193 change letter \u2022 \u2192 next \u2022 ENTER submit', w / 2, h * 0.79);
-    }
+    ctx.fillText('Tap arrows to change \u2022 Tap letter to advance', w / 2, h * 0.79);
 
     // Skip button
     const skipRect = this.getNameEntrySkipRect(canvas);
