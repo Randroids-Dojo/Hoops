@@ -1013,14 +1013,6 @@ export class Game {
     const elapsedMs = Math.round(run.elapsed * 1000);
 
     ctx.save();
-    ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '14px monospace';
-    ctx.fillText('GOAL', padding, padding + 14);
-    ctx.fillStyle = COLORS.primary;
-    ctx.font = 'bold 24px monospace';
-    ctx.fillText('DEEP', padding, padding + 42);
-
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '14px monospace';
