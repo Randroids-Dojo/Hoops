@@ -105,21 +105,42 @@ export class Screens {
 
   // --- Hit test helpers for button regions ---
 
-  getLeaderboardButtonRect(canvas) {
+  // Secondary actions row (Leaderboards + Store) shown as smaller side-by-side
+  // pills at the bottom of the title screen. Distinct from the prominent mode
+  // buttons so they read as a separate group.
+  getTitleSecondaryRects(canvas) {
     const w = canvas.width;
     const h = canvas.height;
-    const btnW = Math.min(w * 0.5, 200);
-    const btnH = 36;
+    const totalW = Math.min(w * 0.78, 300);
+    const gap = 10;
+    const btnW = (totalW - gap) / 2;
+    const btnH = 38;
+    const startX = w / 2 - totalW / 2;
+    const y = h * 0.86 - btnH / 2;
     return {
-      x: w / 2 - btnW / 2,
-      y: h * 0.86 - btnH / 2,
-      w: btnW,
-      h: btnH,
+      leaderboard: { x: startX, y, w: btnW, h: btnH },
+      store: { x: startX + btnW + gap, y, w: btnW, h: btnH },
     };
   }
 
   getTitleLeaderboardRect(canvas) {
-    return this.getLeaderboardButtonRect(canvas);
+    return this.getTitleSecondaryRects(canvas).leaderboard;
+  }
+
+  getTitleStoreRect(canvas) {
+    return this.getTitleSecondaryRects(canvas).store;
+  }
+
+  // Label that introduces the grouped mode buttons. Returned as a rect so
+  // layout math can reserve space for it above the stack.
+  getTitleModesLabelRect(canvas) {
+    const modes = this.getTitleModeRects(canvas);
+    return {
+      x: modes.classic.x,
+      y: modes.classic.y - 32,
+      w: modes.classic.w,
+      h: 18,
+    };
   }
 
   getTitleModeRects(canvas) {
@@ -128,9 +149,10 @@ export class Screens {
     const btnW = Math.min(w * 0.72, 280);
     const btnH = 46;
     const gap = 10;
+    const groupGap = 32;
     const stackH = btnH * 3 + gap * 2;
-    const leaderboardTop = this.getLeaderboardButtonRect(canvas).y;
-    const startY = Math.min(h * 0.52, leaderboardTop - stackH - 24);
+    const secondaryTop = this.getTitleSecondaryRects(canvas).leaderboard.y;
+    const startY = Math.min(h * 0.52, secondaryTop - stackH - groupGap);
     return {
       classic: { x: w / 2 - btnW / 2, y: startY, w: btnW, h: btnH },
       distance: { x: w / 2 - btnW / 2, y: startY + btnH + gap, w: btnW, h: btnH },
@@ -252,22 +274,43 @@ export class Screens {
     ctx.fillText('ARCADE BASKETBALL', w / 2, titleY + 40);
 
     const modes = this.getTitleModeRects(canvas);
+    const modesLabel = this.getTitleModesLabelRect(canvas);
     const pulse = 0.86 + Math.sin(Date.now() * 0.004) * 0.14;
+
+    // Group label for the three game modes. Shadow knocks back the busy 3D
+    // background so the text stays legible.
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 8;
+    ctx.font = 'bold 15px monospace';
+    ctx.fillText('— GAME MODES —', modesLabel.x + modesLabel.w / 2, modesLabel.y + modesLabel.h);
+    ctx.shadowBlur = 0;
+
     this._drawTitleModeButton(ctx, modes.classic, 'CLASSIC', 'Score attack', COLORS.scoreGreen, pulse);
     this._drawTitleModeButton(ctx, modes.distance, 'DISTANCE', 'Make it further', COLORS.primary, 1);
     this._drawTitleModeButton(ctx, modes.endless, 'ENDLESS', 'Shots add time', '#FFD700', 1);
 
-    const board = this.getTitleLeaderboardRect(canvas);
-    ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
-    ctx.strokeStyle = COLORS.primary;
-    ctx.lineWidth = 1.5;
-    this._roundRect(ctx, board.x, board.y, board.w, board.h, 6);
+    // Secondary actions row: Leaderboards + Store. Rendered as smaller, muted
+    // ghost pills so they read as a distinct group from the mode buttons.
+    const secondary = this.getTitleSecondaryRects(canvas);
+    this._drawTitleSecondaryButton(ctx, secondary.leaderboard, 'LEADERBOARDS');
+    this._drawTitleSecondaryButton(ctx, secondary.store, 'STORE');
+
+    ctx.restore();
+  }
+
+  _drawTitleSecondaryButton(ctx, rect, label) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, rect.h / 2);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = COLORS.primary;
-    ctx.font = 'bold 13px monospace';
-    ctx.fillText('LEADERBOARDS', board.x + board.w / 2, board.y + board.h / 2 + 5);
-
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 4);
     ctx.restore();
   }
 
@@ -287,9 +330,14 @@ export class Screens {
     ctx.fillStyle = color;
     ctx.font = 'bold 17px monospace';
     ctx.fillText(title, rect.x + rect.w / 2, rect.y + 20);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '11px monospace';
+    // Subtitle: bolder, brighter, with a shadow so it reads against the
+    // transparent button fill on top of the 3D scene.
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 6;
+    ctx.font = 'bold 12px monospace';
     ctx.fillText(subtitle, rect.x + rect.w / 2, rect.y + 36);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
