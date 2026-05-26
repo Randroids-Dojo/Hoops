@@ -1,10 +1,13 @@
 // HUD overlay - score, time, stage, streak, notifications
 
 import { COLORS, BONUS_TIME_THRESHOLD } from './utils.js';
+import { tickets } from './tickets.js';
+import * as coinAnim from './coinAnim.js';
 
 export class HUD {
   constructor() {
     this.notifications = []; // { text, timer, maxTimer }
+    coinAnim.setInitialBalance(tickets.balance());
   }
 
   addNotification(text, duration = 0.8) {
@@ -18,6 +21,75 @@ export class HUD {
         this.notifications.splice(i, 1);
       }
     }
+    coinAnim.update(dt);
+  }
+
+  // The persistent ticket counter rect — used by the coin animation as the
+  // destination for flying sprites. Anchored under STAGE in the top-right.
+  getTicketCounterRect(canvas) {
+    const padding = 20;
+    const w = 110;
+    const h = 26;
+    return { x: canvas.width - padding - w, y: padding + 60, w, h };
+  }
+
+  _drawTicketCounter(ctx, canvas) {
+    const rect = this.getTicketCounterRect(canvas);
+    coinAnim.setCounterDst(rect.x + rect.w / 2, rect.y + rect.h / 2);
+
+    const balance = coinAnim.getDisplayedBalance();
+    const pulse = coinAnim.getPulseFactor();
+
+    ctx.save();
+    // Pill background
+    ctx.fillStyle = 'rgba(255,211,77,0.12)';
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 1.2;
+    this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, rect.h / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Coin glyph
+    const coinR = 9;
+    const coinCX = rect.x + 6 + coinR;
+    const coinCY = rect.y + rect.h / 2;
+    ctx.fillStyle = '#ffd34d';
+    ctx.beginPath();
+    ctx.arc(coinCX, coinCY, coinR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#7a5300';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Numeric balance with pulse-scale
+    ctx.translate(rect.x + rect.w - 10, rect.y + rect.h / 2 + 5);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = '#fff6c0';
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`${balance}`, 0, 0);
+    ctx.restore();
+  }
+
+  // Render the persistent ticket counter and any in-flight coin sprites.
+  // Safe to call from any in-game HUD (Classic/Distance/Endless).
+  renderTicketsOverlay(ctx, canvas) {
+    this._drawTicketCounter(ctx, canvas);
+    coinAnim.render(ctx);
+  }
+
+  _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
   }
 
   render(ctx, canvas, scoring) {
@@ -106,6 +178,9 @@ export class HUD {
       ctx.font = '12px monospace';
       ctx.fillText('STREAK', w - padding, h * 0.45 - 22);
     }
+
+    // Persistent ticket counter + flying coins
+    this.renderTicketsOverlay(ctx, canvas);
 
     // Notifications (center screen, pop-up text)
     this._renderNotifications(ctx, w, h);

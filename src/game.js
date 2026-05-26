@@ -15,6 +15,10 @@ import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 import { settings } from './settings.js';
+import { tickets } from './tickets.js';
+import { STREAK } from './utils.js';
+import * as skins from './skins.js';
+import * as coinAnim from './coinAnim.js';
 import {
   DISTANCE_MODE,
   ENDLESS_MODE,
@@ -97,6 +101,47 @@ export class Game {
     this._setupNameEntryInput();
     this._createPauseButton();
     initFeedbackFab();
+
+    // Apply equipped skins to the freshly built scene + ball pool so the
+    // player sees their cosmetics immediately on first frame.
+    skins.applyAllEquipped(this);
+
+    // Image-loaded ball skins (Miguel / Jessica / Galaxy) finish loading
+    // asynchronously. When they arrive, re-apply if any pool ball is using
+    // that id, so the placeholder fallback gets replaced live.
+    skins.onBallTextureChange((skinId) => {
+      for (const b of this.balls) {
+        if (b.skinId === skinId) {
+          // Force a re-apply by clearing the cached id so applySkin runs again.
+          b.skinId = null;
+          b.applySkin(skinId);
+        }
+      }
+    });
+
+    // Subscribe to ticket awards so we can dispatch coin bursts and show a
+    // small notification with the reason.
+    tickets.subscribe((evt) => this._onTicketEvent(evt));
+  }
+
+  _onTicketEvent(evt) {
+    if (evt.type !== 'award') return;
+    // Project the 3D source position to screen pixels for the coin burst.
+    let src;
+    if (evt.sourcePos3D) {
+      src = this.world3d.projectToScreen(evt.sourcePos3D);
+    } else {
+      src = { x: this.canvas.width / 2, y: this.canvas.height / 2 };
+    }
+    const dst = coinAnim.getCounterDst();
+    coinAnim.spawnBurst(src.x, src.y, dst.x, dst.y, evt.amount, tickets.balance());
+
+    // Inline ticket-earned label as a small notification — uses existing
+    // HUD notification stack so it visually queues behind SWISH/streak text.
+    if (this.hud && evt.amount > 0) {
+      const label = evt.reason === 'firstDaily' ? '+100 DAILY BONUS' : `+${evt.amount} TICKETS`;
+      this.hud.addNotification(label, 0.55);
+    }
   }
 
   get activeBall() {
@@ -197,6 +242,8 @@ export class Game {
         this._handleNameEntryTap(x, y);
       } else if (this.state === 'leaderboard') {
         this._handleLeaderboardTap(x, y);
+      } else if (this.state === 'store') {
+        this._handleStoreTap(x, y);
       }
     };
 
@@ -227,6 +274,8 @@ export class Game {
           this._exitSettings();
         } else if (this.state === 'leaderboard') {
           this._exitLeaderboard();
+        } else if (this.state === 'store') {
+          this._exitStore();
         } else if (this.state === 'nameEntry') {
           // Skip name entry
           this._skipNameEntry();
@@ -273,10 +322,10 @@ export class Game {
       this._openLeaderboard(this.leaderboard.mode);
       return;
     }
-    // Store button — placeholder; click feedback only for now.
+    // Store button — opens the store catalog.
     const storeBtn = this.screens.getTitleStoreRect(this.canvas);
     if (this.screens._hitTest(x, y, storeBtn)) {
-      this.audio.playClick();
+      this._openStore();
       return;
     }
     const modes = this.screens.getTitleModeRects(this.canvas);
@@ -501,6 +550,77 @@ export class Game {
     this.state = this.leaderboardReturnState || 'title';
   }
 
+  // ── Store ──────────────────────────────────────────────────────────
+
+  _openStore() {
+    this.state = 'store';
+    this.audio.playClick();
+    // Reset any stale preview from a previous open.
+    this.screens.store.clearPreviews();
+  }
+
+  _exitStore() {
+    this.audio.playClick();
+    // Drop any active preview and restore equipped skins on the scene.
+    this.screens.store.clearPreviews();
+    skins.applyAllEquipped(this);
+    this.state = 'title';
+  }
+
+  _handleStoreTap(x, y) {
+    const action = this.screens.store.hitTest(this.canvas, x, y, this.screens._hitTest);
+    if (!action) return;
+
+    if (action === 'back') {
+      this._exitStore();
+      return;
+    }
+    if (action === 'confirm-yes') {
+      const cat = this.screens.store.activeCategory;
+      const id = this.screens.store.confirmId;
+      const ok = tickets.purchase(cat, id);
+      this.audio.playClick();
+      if (ok) {
+        this.screens.store.cancelConfirm();
+        // Equipping is implicit in purchase(); re-apply to the live scene.
+        skins.applySkinByCategory(this, cat, id);
+      }
+      return;
+    }
+    if (action === 'confirm-no') {
+      this.audio.playClick();
+      this.screens.store.cancelConfirm();
+      return;
+    }
+    if (action === 'buy') {
+      this.audio.playClick();
+      const cat = this.screens.store.activeCategory;
+      const id = this.screens.store.previewId[cat];
+      if (id) this.screens.store.startConfirm(id);
+      return;
+    }
+    if (action.startsWith('tab:')) {
+      this.audio.playClick();
+      this.screens.store.setActiveCategory(action.slice(4));
+      return;
+    }
+    if (action.startsWith('card:')) {
+      const cat = this.screens.store.activeCategory;
+      const id = action.slice(5);
+      this.audio.playClick();
+      // Tapping an owned skin a second time equips it; tapping an unowned
+      // one sets preview (BUY appears at the bottom).
+      if (tickets.isOwned(cat, id) && this.screens.store.previewId[cat] === id) {
+        tickets.equip(cat, id);
+        skins.applySkinByCategory(this, cat, id);
+      } else {
+        this.screens.store.setPreview(cat, id);
+        skins.applySkinByCategory(this, cat, id);
+      }
+      return;
+    }
+  }
+
   // --- Pause menu ---
 
   _handlePausedTap(x, y) {
@@ -595,6 +715,16 @@ export class Game {
     this.audio.playClick();
 
     hideFab();
+    // Reset any in-flight coins from a prior run so they don't fly into the
+    // new game's counter.
+    coinAnim.clear();
+    // Re-apply equipped skins in case the player exited the Store with an
+    // unbought preview still showing on the meshes.
+    skins.applyAllEquipped(this);
+    // Start the per-run awards log + bump lifetime games-played.
+    tickets.beginRun();
+    // Daily-bonus award (no-op if already claimed today).
+    tickets.claimDailyBonusIfNew(this.hoop.getRimCenter());
     this.gameMode = mode;
     this.state = 'playing';
     this.previousState = null;
@@ -694,7 +824,7 @@ export class Game {
     this.hud.update(dt);
     this.particles.update(dt);
 
-    if (this.state === 'title' || this.state === 'leaderboard' || this.state === 'nameEntry') {
+    if (this.state === 'title' || this.state === 'leaderboard' || this.state === 'nameEntry' || this.state === 'store') {
       this.lane.update(dt);
       this.hoop.update(dt, this.balls);
       return;
@@ -846,6 +976,33 @@ export class Game {
 
     // Particles
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
+
+    // Tickets — swish or regular make, plus any streak-milestone bonus.
+    // Bonus time doubles base ticket awards just like it doubles points.
+    this._awardShotTickets(isSwish, result);
+  }
+
+  // Centralized ticket-awarding for a single made shot. Called from all
+  // three game modes so the earn rules don't drift.
+  _awardShotTickets(isSwish, result) {
+    const rim = this.hoop.getRimCenter();
+    const mult = this.scoring.bonusTimeActive ? 2 : 1;
+    if (isSwish) {
+      tickets.award('swish', undefined, rim);
+      if (mult > 1) tickets.award('swish', undefined, rim); // 2nd helping for bonus time
+    } else {
+      tickets.award('shotMake', undefined, rim);
+      if (mult > 1) tickets.award('shotMake', undefined, rim);
+    }
+    if (result?.streakMilestone) {
+      const level = this.scoring.streak;
+      let reason = null;
+      if (level === STREAK.UNSTOPPABLE) reason = 'streakUnstoppable';
+      else if (level === STREAK.BLAZING) reason = 'streakBlazing';
+      else if (level === STREAK.ON_FIRE) reason = 'streakOnFire';
+      else if (level === STREAK.HEATING_UP) reason = 'streakHeatingUp';
+      if (reason) tickets.award(reason, undefined, rim);
+    }
   }
 
   _onDistanceScore(isSwish) {
@@ -860,6 +1017,7 @@ export class Game {
     for (const text of result.notifications) this.hud.addNotification(text);
 
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
+    this._awardShotTickets(isSwish, result);
 
     if (distanceResult === 'win') {
       this._onDistanceWin();
@@ -884,6 +1042,7 @@ export class Game {
     for (const text of result.notifications) this.hud.addNotification(text);
     this.hud.addNotification(`+${timeBonus}s`, 0.75);
     this.particles.emitScoreBurst(this.hoop.x, this.hoop.y);
+    this._awardShotTickets(isSwish, result);
   }
 
   _onMiss(ball) {
@@ -917,6 +1076,7 @@ export class Game {
     this.hoop.setDepthOffset(run.offsetZ);
     this.audio.playStageClear();
     this.particles.emitCelebration(this.canvas.width, this.canvas.height);
+    tickets.award('distanceWin', undefined, this.hoop.getRimCenter());
     this._resetBallPool();
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
@@ -930,6 +1090,7 @@ export class Game {
     this.hoop.setDepthOffset(this.distanceRun.offsetZ);
     this.audio.playTimeUp();
     this.screens.startFlash();
+    tickets.award('distanceLoss', undefined, this.hoop.getRimCenter());
     this._resetBallPool();
     this.state = 'gameOver';
   }
@@ -939,6 +1100,7 @@ export class Game {
     finishEndlessRun(run);
     this.audio.playTimeUp();
     this.screens.startFlash();
+    tickets.award('endlessTimeUp', undefined, this.hoop.getRimCenter());
     this._resetBallPool();
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
@@ -952,13 +1114,20 @@ export class Game {
     this.screens.startStageClear();
     this.audio.playStageClear();
     this.particles.emitCelebration(this.canvas.width, this.canvas.height);
+    tickets.award('stageClear', undefined, this.hoop.getRimCenter());
     this._resetBallPool();
   }
 
   _onTimeUp() {
     this.audio.playTimeUp();
     this.screens.startFlash();
+    // A new high score has to be tested BEFORE we save it — saveHighScore()
+    // appends the run unconditionally, so `isHighScore()` is only meaningful
+    // when called first.
+    const wasHighScore = this.scoring.isHighScore() && this.scoring.totalScore > 0;
     this.scoring.saveHighScore();
+    tickets.award('classicTimeUp', undefined, this.hoop.getRimCenter());
+    if (wasHighScore) tickets.award('highScoreBonus', undefined, this.hoop.getRimCenter());
     this._resetBallPool();
 
     // Go to name entry screen instead of directly to game over
@@ -1069,6 +1238,13 @@ export class Game {
       this.screens.renderLeaderboard(ctx, canvas, this.leaderboard);
       return;
     }
+
+    if (this.state === 'store') {
+      // The live 3D scene continues to render in the background so the
+      // currently-previewed skin is visible. No particles needed.
+      this.screens.renderStore(ctx, canvas);
+      return;
+    }
   }
 
   _renderDistanceHud(ctx) {
@@ -1145,6 +1321,7 @@ export class Game {
       ctx.restore();
     }
 
+    this.hud.renderTicketsOverlay(ctx, this.canvas);
     this.hud._renderNotifications(ctx, w, h);
   }
 
@@ -1192,6 +1369,7 @@ export class Game {
     ctx.fillText(`${run.makes}/${run.shots}`, w / 2, h * 0.19);
     ctx.restore();
 
+    this.hud.renderTicketsOverlay(ctx, this.canvas);
     this.hud._renderNotifications(ctx, w, h);
   }
 

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { updateRimScoringSensor } from '@randroids-dojo/vibekit';
 import { COURT, GROUP } from './world3d.js';
+import { getSkin } from './storeData.js';
 
 const RIM_SEGMENTS = 22; // sphere segments forming the rim's collision torus
 const NET_STRANDS = 14;
@@ -39,30 +40,34 @@ export class Hoop {
     // ── Backboard ─────────────────────────────────────────────────────
     const bb = COURT.backboardSize;
     const boardGroup = new THREE.Group();
+    const defaultSkin = getSkin('backboard', 'default');
+    const bp = defaultSkin.params;
 
     const board = new THREE.Mesh(
       new THREE.BoxGeometry(bb.w, bb.h, bb.d),
       new THREE.MeshPhysicalMaterial({
-        color: 0xf6f6f6,
-        roughness: 0.12,
+        color: bp.color,
+        roughness: bp.roughness,
         metalness: 0.0,
-        transmission: 0.45,
+        transmission: bp.transmission,
         thickness: 0.05,
-        clearcoat: 0.4,
+        clearcoat: bp.clearcoat,
         ior: 1.45,
       }),
     );
     board.castShadow = true;
     board.receiveShadow = true;
     boardGroup.add(board);
+    this.board = board;
 
     // Border frame
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(bb.w + 0.04, bb.h + 0.04, bb.d * 0.8),
-      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.6 }),
+      new THREE.MeshStandardMaterial({ color: bp.frame, roughness: 0.4, metalness: 0.6 }),
     );
     frame.position.z = -bb.d * 0.1;
     boardGroup.add(frame);
+    this.frame = frame;
 
     // Shooter's square
     const sqW = bb.w * 0.32;
@@ -76,14 +81,16 @@ export class Hoop {
     ];
     const square = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(squarePts),
-      new THREE.LineBasicMaterial({ color: 0xff2233 }),
+      new THREE.LineBasicMaterial({ color: bp.square }),
     );
     square.position.y = -bb.h * 0.06;
     boardGroup.add(square);
+    this.boardSquare = square;
 
     boardGroup.position.set(this.rimCenter.x, this.rimCenter.y + 0.32, this.rimCenter.z - COURT.backboardOffset);
     this.assembly.add(boardGroup);
     this.boardGroup = boardGroup;
+    this.currentBackboardSkinId = 'default';
 
     // ── Rim (torus) ──────────────────────────────────────────────────
     const rim = new THREE.Mesh(
@@ -552,6 +559,33 @@ export class Hoop {
     if (result === 'swish' || result === 'score') this.triggerNetRipple();
 
     return result;
+  }
+
+  // Swap backboard glass + frame + shooter's-square colors in place. The
+  // physics body is unaffected — only visual materials change. Old materials
+  // are disposed to avoid GPU leaks from MeshPhysicalMaterial rebuilds.
+  applyBackboardSkin(skinId) {
+    const skin = getSkin('backboard', skinId);
+    if (!skin || !this.board) return;
+    if (skinId === this.currentBackboardSkinId) return;
+    const p = skin.params;
+
+    const oldMat = this.board.material;
+    this.board.material = new THREE.MeshPhysicalMaterial({
+      color: p.color,
+      roughness: p.roughness,
+      metalness: 0.0,
+      transmission: p.transmission,
+      thickness: 0.05,
+      clearcoat: p.clearcoat,
+      ior: 1.45,
+    });
+    if (oldMat) oldMat.dispose();
+
+    if (this.frame) this.frame.material.color.setHex(p.frame);
+    if (this.boardSquare) this.boardSquare.material.color.setHex(p.square);
+
+    this.currentBackboardSkinId = skinId;
   }
 }
 

@@ -1,6 +1,8 @@
 // Title, game over, stage clear, name entry, and leaderboard screens
 
 import { COLORS } from './utils.js';
+import { tickets } from './tickets.js';
+import { StoreScreen } from './storeScreen.js';
 
 // Pause menu button order (top-to-bottom) and their labels. Keep these in
 // sync — both render and hit-test iterate PAUSE_MENU_KEYS.
@@ -28,6 +30,9 @@ export class Screens {
     // Leaderboard state
     this.leaderboardTab = 'alltime'; // 'alltime' or 'daily'
     this.leaderboardScrollY = 0;
+
+    // Store
+    this.store = new StoreScreen();
   }
 
   update(dt) {
@@ -36,6 +41,7 @@ export class Screens {
       this.flashAlpha -= dt * 3;
       if (this.flashAlpha < 0) this.flashAlpha = 0;
     }
+    this.store.update(dt);
   }
 
   updateStageClear(dt) {
@@ -296,7 +302,52 @@ export class Screens {
     this._drawTitleSecondaryButton(ctx, secondary.leaderboard, 'LEADERBOARDS');
     this._drawTitleSecondaryButton(ctx, secondary.store, 'STORE');
 
+    // Tickets pill anchored just above the STORE button so the player can
+    // see at a glance what they can afford. Aligned to the STORE button's
+    // right edge so it never overlaps the LEADERBOARDS button.
+    this._drawTicketsPill(ctx, secondary.store);
+
     ctx.restore();
+  }
+
+  _drawTicketsPill(ctx, anchorRect) {
+    const balance = tickets.balance();
+    const text = `${balance}`;
+    ctx.save();
+    ctx.font = 'bold 12px monospace';
+    const numW = ctx.measureText(text).width;
+    const padX = 8;
+    const coinR = 7;
+    const w = numW + coinR * 2 + padX * 2 + 6;
+    const h = 22;
+    const x = anchorRect.x + anchorRect.w - w;
+    const y = anchorRect.y - h - 4;
+
+    ctx.fillStyle = 'rgba(255,211,77,0.16)';
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 1.2;
+    this._roundRect(ctx, x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Coin glyph
+    ctx.fillStyle = '#ffd34d';
+    ctx.beginPath();
+    ctx.arc(x + padX + coinR, y + h / 2, coinR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#7a5300';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff6c0';
+    ctx.textAlign = 'left';
+    ctx.fillText(text, x + padX + coinR * 2 + 4, y + h / 2 + 4);
+    ctx.restore();
+  }
+
+  // ── Store screen (delegated) ──────────────────────────────────────
+  renderStore(ctx, canvas) {
+    this.store.render(ctx, canvas, this);
   }
 
   _drawTitleSecondaryButton(ctx, rect, label) {
@@ -427,6 +478,10 @@ export class Screens {
       ctx.font = 'bold 18px monospace';
       ctx.fillText(`GLOBAL RANK: #${globalRank}`, w / 2, h * 0.67);
     }
+
+    // Tickets earned this run — collapsed by reason. Only render if the
+    // player actually earned something so cleared/exited runs stay tidy.
+    this._renderTicketsEarned(ctx, canvas);
 
     // RESTART button
     const btn = this.getRestartButtonRect(canvas);
@@ -937,6 +992,49 @@ export class Screens {
     ctx.font = 'bold 15px monospace';
     ctx.fillText('BACK', w / 2, back.y + back.h / 2 + 5);
 
+    ctx.restore();
+  }
+
+  _renderTicketsEarned(ctx, canvas) {
+    const total = tickets.getRunTotal();
+    if (total <= 0) return;
+    const balance = tickets.balance();
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Render as a compact pill below the global rank, above the restart
+    // button. Keeps the existing layout intact while still telling the
+    // player how much they earned this run.
+    const text = `+${total} TICKETS`;
+    const balText = `BALANCE  ◉ ${balance}`;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 16px monospace';
+    const tw = ctx.measureText(text).width;
+    const padX = 14;
+    const pillW = tw + padX * 2;
+    const pillH = 26;
+    const pillY = h * 0.7;
+    const pillX = w / 2 - pillW / 2;
+
+    ctx.fillStyle = 'rgba(255,211,77,0.14)';
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#ffd34d';
+    ctx.shadowBlur = 8;
+    this._roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#fff6c0';
+    ctx.fillText(text, w / 2, pillY + pillH / 2 + 6);
+
+    // Balance line just below the pill so the player sees what they have to
+    // spend in the Store.
+    ctx.fillStyle = 'rgba(255,211,77,0.7)';
+    ctx.font = '12px monospace';
+    ctx.fillText(balText, w / 2, pillY + pillH + 14);
     ctx.restore();
   }
 
