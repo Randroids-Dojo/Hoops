@@ -110,6 +110,7 @@ export class Ball {
     this.visible = true;
     this.flightTime = 0;
     this.hasContacted = false;            // has touched anything since throw
+    this.touchedFloor = false;            // has touched the court floor since throw
     this.settleTimer = 0;                 // time spent settled
     this.lastRimContactTime = -10;        // for swish detection — rim only
     this.lastBackboardContactTime = -10;  // tracked separately so banks
@@ -151,6 +152,7 @@ export class Ball {
     this.visible = true;
     this.flightTime = 0;
     this.hasContacted = false;
+    this.touchedFloor = false;
     this.settleTimer = 0;
     this.sensorEntered = false;
     this.reportedRim = false;
@@ -185,6 +187,7 @@ export class Ball {
     this.rimHit = false;
     this.flightTime = 0;
     this.hasContacted = false;
+    this.touchedFloor = false;
     this.settleTimer = 0;
     this.sensorEntered = false;
     this.reportedRim = false;
@@ -240,13 +243,20 @@ export class Ball {
       this._writeTrail();
     }
 
+    // A floor bounce after a rim/backboard contact is unambiguously a miss:
+    // the ball physically can't reach back up through the rim from ground
+    // level. Mark it immediately so Distance mode (and streak resets) don't
+    // wait the multiple seconds it can take a bouncy ball to settle.
+    const hitHardware = this.lastRimContactTime >= 0 || this.lastBackboardContactTime >= 0;
+
     // Miss conditions: behind backboard, outside court, fell to floor & settled
     if (
       pos.z < COURT.rim.z - 1.5 ||
       Math.abs(pos.x) > 9 ||
       pos.y < -1 ||
       this.flightTime > 6 ||
-      (this.flightTime > 1.5 && settled && !this.scored)
+      (this.flightTime > 1.5 && settled && !this.scored) ||
+      (this.touchedFloor && hitHardware && !this.scored)
     ) {
       if (!this.scored) this.missed = true;
     }
