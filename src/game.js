@@ -300,23 +300,26 @@ export class Game {
   // --- Name entry ---
 
   _handleNameEntryKey(key) {
-    if (key === 'ArrowUp') {
-      this.screens.nameScrollUp();
+    if (key === 'Enter') {
+      this._submitName();
+      return;
+    }
+    if (key === 'Backspace' || key === 'ArrowLeft') {
+      this.screens.nameBackCursor();
       this.audio.playClick();
-    } else if (key === 'ArrowDown') {
-      this.screens.nameScrollDown();
-      this.audio.playClick();
-    } else if (key === 'ArrowRight') {
+      return;
+    }
+    if (key === 'ArrowRight') {
       this.screens.nameAdvanceCursor();
       this.audio.playClick();
-    } else if (key === 'ArrowLeft') {
-      this.screens.nameBackCursor();
-      this.audio.playClick();
-    } else if (key === 'Enter') {
-      this._submitName();
-    } else if (key === 'Backspace') {
-      this.screens.nameBackCursor();
-      this.audio.playClick();
+      return;
+    }
+    if (key && key.length === 1) {
+      const upper = key.toUpperCase();
+      if (/[A-Z0-9 ]/.test(upper)) {
+        this.screens.nameSetChar(upper);
+        this.audio.playClick();
+      }
     }
   }
 
@@ -335,32 +338,12 @@ export class Game {
       return;
     }
 
-    // Check character slots
+    // Check character slots - tap to select that slot
     const charRects = this.screens.getNameEntryCharRects(this.canvas);
     for (let i = 0; i < 3; i++) {
       const r = charRects[i];
-      // Check up arrow area (above the slot)
-      if (x >= r.x && x <= r.x + r.w && y >= r.y - 30 && y < r.y) {
-        this.screens.namePos = i;
-        this.screens.nameScrollUp();
-        this.audio.playClick();
-        return;
-      }
-      // Check down arrow area (below the slot)
-      if (x >= r.x && x <= r.x + r.w && y > r.y + r.h && y <= r.y + r.h + 30) {
-        this.screens.namePos = i;
-        this.screens.nameScrollDown();
-        this.audio.playClick();
-        return;
-      }
-      // Check the slot itself - select it
       if (this.screens._hitTest(x, y, r)) {
-        if (this.screens.namePos === i) {
-          // Already selected - advance
-          this.screens.nameAdvanceCursor();
-        } else {
-          this.screens.namePos = i;
-        }
+        this.screens.namePos = i;
         this.audio.playClick();
         return;
       }
