@@ -39,7 +39,7 @@ export function createDistanceRun(): DistanceRun {
     shots: 0,
     makes: 0,
     result: null,
-    progress: 0,
+    progress: 0.5,
   };
 }
 
@@ -53,8 +53,12 @@ export function createEndlessRun(): EndlessRun {
   };
 }
 
+// 0 = loss edge (left), 0.5 = start (center), 1 = win edge (right).
 export function distanceProgress(offsetZ: number): number {
-  return clamp(Math.abs(Math.min(0, offsetZ)) / Math.abs(DISTANCE_MODE.winOffsetZ), 0, 1);
+  if (offsetZ <= 0) {
+    return clamp(0.5 + 0.5 * (Math.abs(offsetZ) / Math.abs(DISTANCE_MODE.winOffsetZ)), 0, 1);
+  }
+  return clamp(0.5 - 0.5 * (offsetZ / DISTANCE_MODE.loseOffsetZ), 0, 1);
 }
 
 export function applyDistanceScore(run: DistanceRun): 'win' | 'continue' {
@@ -77,6 +81,7 @@ export function applyDistanceMiss(run: DistanceRun): 'loss' | 'continue' {
   run.progress = distanceProgress(run.offsetZ);
   if (run.offsetZ >= DISTANCE_MODE.loseOffsetZ) {
     run.result = 'loss';
+    run.progress = 0;
     return 'loss';
   }
   return 'continue';

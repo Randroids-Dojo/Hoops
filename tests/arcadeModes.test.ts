@@ -13,14 +13,22 @@ import {
 } from '../src/arcadeModes';
 
 describe('distance mode runner', () => {
-  it('moves the hoop deeper and tracks progress on makes', () => {
+  it('starts progress centered and advances toward win on makes', () => {
     const run = createDistanceRun();
+    expect(run.progress).toBe(0.5);
 
     expect(applyDistanceScore(run)).toBe('continue');
     expect(run.shots).toBe(1);
     expect(run.makes).toBe(1);
     expect(run.offsetZ).toBe(DISTANCE_MODE.scoreStepZ);
-    expect(run.progress).toBeCloseTo(0.2);
+    expect(run.progress).toBeCloseTo(0.6);
+  });
+
+  it('drops progress below center on misses', () => {
+    const run = createDistanceRun();
+
+    expect(applyDistanceMiss(run)).toBe('continue');
+    expect(run.progress).toBeLessThan(0.5);
   });
 
   it('moves the hoop closer and loses at the near threshold on misses', () => {
@@ -47,9 +55,11 @@ describe('distance mode runner', () => {
     expect(run.winTimeMs).toBe(12345);
   });
 
-  it('clamps distance progress to the playable far span', () => {
+  it('maps offset to a centered progress meter', () => {
+    expect(distanceProgress(0)).toBe(0.5);
+    expect(distanceProgress(-0.45)).toBeCloseTo(0.75);
+    expect(distanceProgress(0.21)).toBeCloseTo(0.25);
     expect(distanceProgress(0.5)).toBe(0);
-    expect(distanceProgress(-0.45)).toBeCloseTo(0.5);
     expect(distanceProgress(-2)).toBe(1);
   });
 });

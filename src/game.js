@@ -1041,21 +1041,35 @@ export class Game {
     const meterH = 12;
     const meterX = w / 2 - meterW / 2;
     const meterY = h * 0.19;
+    const centerX = meterX + meterW / 2;
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     this.screens._roundRect(ctx, meterX, meterY, meterW, meterH, 6);
     ctx.fill();
-    ctx.fillStyle = COLORS.scoreGreen;
-    ctx.shadowColor = COLORS.scoreGreen;
-    ctx.shadowBlur = 10;
-    this.screens._roundRect(ctx, meterX, meterY, meterW * run.progress, meterH, 6);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    if (run.progress > 0.5) {
+      const fillW = meterW * (run.progress - 0.5);
+      ctx.fillStyle = COLORS.scoreGreen;
+      ctx.shadowColor = COLORS.scoreGreen;
+      ctx.shadowBlur = 10;
+      this.screens._roundRect(ctx, centerX, meterY, fillW, meterH, 6);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else if (run.progress < 0.5) {
+      const fillW = meterW * (0.5 - run.progress);
+      ctx.fillStyle = COLORS.red;
+      ctx.shadowColor = COLORS.red;
+      ctx.shadowBlur = 10;
+      this.screens._roundRect(ctx, centerX - fillW, meterY, fillW, meterH, 6);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(centerX - 1, meterY - 3, 2, meterH + 6);
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.font = '11px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${Math.round(run.progress * 100)}%`, w / 2, meterY + 28);
     ctx.textAlign = 'left';
-    ctx.fillText('START', meterX, meterY + 28);
+    ctx.fillText('LOSE', meterX, meterY + 28);
+    ctx.textAlign = 'center';
+    ctx.fillText('START', centerX, meterY + 28);
     ctx.textAlign = 'right';
     ctx.fillText('WIN', meterX + meterW, meterY + 28);
     ctx.restore();
