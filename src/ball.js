@@ -12,6 +12,9 @@ export const MIN_SPEED_MS = 6.5;
 export const MAX_SPEED_MS = 11.5;
 const LAUNCH_PITCH = 55 * Math.PI / 180; // ~55° arc — classic free-throw angle
 const POWER_RANGE = MAX_THROW_SPEED - MIN_THROW_SPEED;
+// Maximum horizontal yaw at full lateral aim (~28°). Wide enough that an
+// aggressive sideways swipe can clearly miss the rim left or right.
+const MAX_YAW_RAD = 0.5;
 
 // Power-fraction in [0,1] for a given power value in [MIN_THROW_SPEED, MAX_THROW_SPEED].
 function powerFrac(power) {
@@ -23,7 +26,7 @@ function powerFrac(power) {
 export function launchVector(power, lateralAngle) {
   const t = powerFrac(power);
   const speed = MIN_SPEED_MS + (MAX_SPEED_MS - MIN_SPEED_MS) * t;
-  const yaw = clamp(lateralAngle, -1, 1) * 0.18;
+  const yaw = clamp(lateralAngle, -1, 1) * MAX_YAW_RAD;
   const horiz = speed * Math.cos(LAUNCH_PITCH);
   const vert = speed * Math.sin(LAUNCH_PITCH);
   return {
@@ -190,7 +193,7 @@ export class Ball {
 
     const v = launchVector(power, lateralAngle);
     const t = powerFrac(power);
-    const yaw = clamp(lateralAngle, -1, 1) * 0.18;
+    const yaw = clamp(lateralAngle, -1, 1) * MAX_YAW_RAD;
 
     this.body.wakeUp();
     this.body.collisionFilterMask = GROUP.RIM | GROUP.BACKBOARD | GROUP.FLOOR | GROUP.WALL;

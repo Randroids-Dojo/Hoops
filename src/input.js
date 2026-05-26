@@ -1,7 +1,12 @@
 // Touch/mouse input handling
 
 import { classifySwipeGesture, dragPowerNorm } from '@randroids-dojo/vibekit';
-import { MIN_SWIPE_DISTANCE } from './utils.js';
+import { clamp, MIN_SWIPE_DISTANCE } from './utils.js';
+
+// Reference length for normalizing lateral drag — matches the factor
+// _renderAimArc uses to map a perfect-power vertical drag to the rim, so
+// a full sideways drag is the same gesture size as a full-power drag.
+const LATERAL_REF_FACTOR = 0.55;
 
 export class Input {
   constructor(canvas) {
@@ -83,7 +88,12 @@ export class Input {
     // direction. Reference = canvas client height so the displayed meter
     // and the actual throw stay consistent if the canvas is ever scaled.
     if (gesture.kind === 'up-swipe') {
-      if (this.onThrow) this.onThrow(gesture.dragPowerNorm, gesture.lateralAngle);
+      // Decouple horizontal aim from drag length: lateral = dx normalized
+      // against canvas height, independent of dy. Keeps the live preview
+      // in sync with the actual throw (both use the same formula).
+      const ref = (this.canvas.clientHeight || this.canvas.height) * LATERAL_REF_FACTOR;
+      const lateralNorm = clamp((pos.x - this.startX) / Math.max(ref, 1), -1, 1);
+      if (this.onThrow) this.onThrow(gesture.dragPowerNorm, lateralNorm);
     } else if (gesture.kind === 'tap') {
       // It's a tap
       if (this.onTap) {
@@ -123,5 +133,14 @@ export class Input {
       { x: this.currentX, y: this.currentY },
       { width: this.canvas.clientWidth || this.canvas.width, height: this.canvas.clientHeight || this.canvas.height },
     );
+  }
+
+  // Normalized lateral aim in [-1, 1] from the horizontal drag component
+  // alone, decoupled from drag length. Matches the value emitted on
+  // release so the predictive arc and the actual shot agree.
+  getLateralNorm() {
+    if (!this.pointerDown) return 0;
+    const ref = (this.canvas.clientHeight || this.canvas.height) * LATERAL_REF_FACTOR;
+    return clamp((this.currentX - this.startX) / Math.max(ref, 1), -1, 1);
   }
 }
