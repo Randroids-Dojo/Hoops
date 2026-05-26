@@ -152,9 +152,9 @@ export class Screens {
     const modes = this.getTitleModeRects(canvas);
     return {
       x: modes.classic.x,
-      y: modes.classic.y - 26,
+      y: modes.classic.y - 32,
       w: modes.classic.w,
-      h: 14,
+      h: 18,
     };
   }
 
@@ -164,8 +164,7 @@ export class Screens {
     const btnW = Math.min(w * 0.72, 280);
     const btnH = 46;
     const gap = 10;
-    const labelReserve = 22;
-    const groupGap = 28;
+    const groupGap = 32;
     const stackH = btnH * 3 + gap * 2;
     const secondaryTop = this.getTitleSecondaryRects(canvas).leaderboard.y;
     const startY = Math.min(h * 0.52, secondaryTop - stackH - groupGap);
@@ -293,12 +292,12 @@ export class Screens {
     const modesLabel = this.getTitleModesLabelRect(canvas);
     const pulse = 0.86 + Math.sin(Date.now() * 0.004) * 0.14;
 
-    // Group label for the three game modes. Uses letter-spacing and a faint
-    // shadow so it stays legible over the busy 3D background.
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.shadowColor = 'rgba(0,0,0,0.85)';
-    ctx.shadowBlur = 6;
-    ctx.font = 'bold 11px monospace';
+    // Group label for the three game modes. Shadow knocks back the busy 3D
+    // background so the text stays legible.
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 8;
+    ctx.font = 'bold 15px monospace';
     ctx.fillText('— GAME MODES —', modesLabel.x + modesLabel.w / 2, modesLabel.y + modesLabel.h);
     ctx.shadowBlur = 0;
 
@@ -346,9 +345,14 @@ export class Screens {
     ctx.fillStyle = color;
     ctx.font = 'bold 17px monospace';
     ctx.fillText(title, rect.x + rect.w / 2, rect.y + 20);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '11px monospace';
+    // Subtitle: bolder, brighter, with a shadow so it reads against the
+    // transparent button fill on top of the 3D scene.
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 6;
+    ctx.font = 'bold 12px monospace';
     ctx.fillText(subtitle, rect.x + rect.w / 2, rect.y + 36);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
