@@ -1021,7 +1021,7 @@ export class Screens {
 
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '11px monospace';
-    ctx.fillText('REPLAYS ON YOUR NEXT SHOT', w / 2, tut.y + tut.h + 16);
+    ctx.fillText('RESTARTS YOUR CURRENT GAME', w / 2, tut.y + tut.h + 16);
 
     // Back button
     const back = rects.back;
