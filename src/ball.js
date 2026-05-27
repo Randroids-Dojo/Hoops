@@ -2,8 +2,10 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { COURT, GROUP, makeBasketballTexture, makeBasketballBumpMap } from './world3d.js';
+import { COURT, GROUP } from './world3d.js';
 import { clamp, MIN_THROW_SPEED, MAX_THROW_SPEED } from './utils.js';
+import { getBallTextures } from './skins.js';
+import { tickets } from './tickets.js';
 
 // Tunable launch mapping. The shot's power (already clamped to the
 // [MIN_THROW_SPEED, MAX_THROW_SPEED] range by the game) is mapped to a
@@ -37,26 +39,24 @@ export function launchVector(power, lateralAngle) {
   };
 }
 
-// Procedural textures are identical across the pool — generate once and
-// share them so every Ball doesn't burn its own canvas/GPU memory.
-let SHARED_BALL_TEX = null;
-let SHARED_BALL_BUMP = null;
-function getSharedBallTextures() {
-  if (!SHARED_BALL_TEX) SHARED_BALL_TEX = makeBasketballTexture();
-  if (!SHARED_BALL_BUMP) SHARED_BALL_BUMP = makeBasketballBumpMap();
-  return { tex: SHARED_BALL_TEX, bump: SHARED_BALL_BUMP };
-}
+// Per-skin textures are cached in skins.js; each Ball just reads the cached
+// {map, bumpMap} for the currently equipped skin and swaps them in place
+// when the equipped skin changes (live preview or game start). Each Ball
+// owns its own MeshStandardMaterial — only the underlying CanvasTexture is
+// shared across the pool, so material-level state (bumpScale, roughness)
+// stays per-instance even though pixels come from one texture.
 
 export class Ball {
   constructor(world3d) {
     this.world3d = world3d;
     this.streakLevel = 0;
+    this.skinId = tickets.equipped('ball');
 
     // ── Visual mesh ────────────────────────────────────────────────────
-    const { tex, bump } = getSharedBallTextures();
+    const { map, bumpMap } = getBallTextures(this.skinId);
     const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      bumpMap: bump,
+      map,
+      bumpMap,
       bumpScale: 0.012,
       roughness: 0.78,
       metalness: 0.05,
@@ -119,6 +119,18 @@ export class Ball {
     this.reportedRim = false;
 
     this.reset();
+  }
+
+  // Swap the ball's surface texture in place — no geometry rebuild. Called
+  // by the Store preview flow and by game.startGame() so the equipped skin
+  // is reflected on every ball in the pool.
+  applySkin(skinId) {
+    if (skinId === this.skinId) return;
+    this.skinId = skinId;
+    const { map, bumpMap } = getBallTextures(skinId);
+    this.mesh.material.map = map;
+    this.mesh.material.bumpMap = bumpMap;
+    this.mesh.material.needsUpdate = true;
   }
 
   // Place this ball at the spawn point, ready to throw.

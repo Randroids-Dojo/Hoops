@@ -1,6 +1,9 @@
 // Title, game over, stage clear, name entry, and leaderboard screens
 
 import { COLORS } from './utils.js';
+import { tickets } from './tickets.js';
+import { StoreScreen } from './storeScreen.js';
+import { getTicketIcon } from './ticketSprite.js';
 
 // Pause menu button order (top-to-bottom) and their labels. Keep these in
 // sync — both render and hit-test iterate PAUSE_MENU_KEYS.
@@ -28,6 +31,9 @@ export class Screens {
     // Leaderboard state
     this.leaderboardTab = 'alltime'; // 'alltime' or 'daily'
     this.leaderboardScrollY = 0;
+
+    // Store
+    this.store = new StoreScreen();
   }
 
   update(dt) {
@@ -36,6 +42,7 @@ export class Screens {
       this.flashAlpha -= dt * 3;
       if (this.flashAlpha < 0) this.flashAlpha = 0;
     }
+    this.store.update(dt);
   }
 
   updateStageClear(dt) {
@@ -296,7 +303,47 @@ export class Screens {
     this._drawTitleSecondaryButton(ctx, secondary.leaderboard, 'LEADERBOARDS');
     this._drawTitleSecondaryButton(ctx, secondary.store, 'STORE');
 
+    // Tickets pill anchored just above the STORE button so the player can
+    // see at a glance what they can afford. Aligned to the STORE button's
+    // right edge so it never overlaps the LEADERBOARDS button.
+    this._drawTicketsPill(ctx, secondary.store);
+
     ctx.restore();
+  }
+
+  _drawTicketsPill(ctx, anchorRect) {
+    const balance = tickets.balance();
+    const text = `${balance}`;
+    ctx.save();
+    ctx.font = 'bold 12px monospace';
+    const numW = ctx.measureText(text).width;
+    const padX = 8;
+    const iconW = 18;
+    const iconH = 10;
+    const w = numW + iconW + padX * 2 + 6;
+    const h = 22;
+    const x = anchorRect.x + anchorRect.w - w;
+    const y = anchorRect.y - h - 4;
+
+    ctx.fillStyle = 'rgba(255,211,77,0.16)';
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 1.2;
+    this._roundRect(ctx, x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Ticket glyph
+    ctx.drawImage(getTicketIcon('gold'), x + padX, y + (h - iconH) / 2, iconW, iconH);
+
+    ctx.fillStyle = '#fff6c0';
+    ctx.textAlign = 'left';
+    ctx.fillText(text, x + padX + iconW + 4, y + h / 2 + 4);
+    ctx.restore();
+  }
+
+  // ── Store screen (delegated) ──────────────────────────────────────
+  renderStore(ctx, canvas) {
+    this.store.render(ctx, canvas, this);
   }
 
   _drawTitleSecondaryButton(ctx, rect, label) {
@@ -427,6 +474,10 @@ export class Screens {
       ctx.font = 'bold 18px monospace';
       ctx.fillText(`GLOBAL RANK: #${globalRank}`, w / 2, h * 0.67);
     }
+
+    // Tickets earned this run — collapsed by reason. Only render if the
+    // player actually earned something so cleared/exited runs stay tidy.
+    this._renderTicketsEarned(ctx, canvas);
 
     // RESTART button
     const btn = this.getRestartButtonRect(canvas);
@@ -937,6 +988,78 @@ export class Screens {
     ctx.font = 'bold 15px monospace';
     ctx.fillText('BACK', w / 2, back.y + back.h / 2 + 5);
 
+    ctx.restore();
+  }
+
+  _renderTicketsEarned(ctx, canvas) {
+    const total = tickets.getRunTotal();
+    if (total <= 0) return;
+    const balance = tickets.balance();
+    const w = canvas.width;
+
+    // Place the pill in the band BETWEEN the global-rank text (~h*0.67)
+    // and the restart button. Both ends are clamped: anchored above the
+    // restart button (which itself clamps to fit the canvas) and below
+    // the rank baseline. If the band is too narrow to hold the block on
+    // very short viewports, the pill is suppressed entirely rather than
+    // overlapping rank/restart — players still see their earned total in
+    // the lifetime counter on the next screen, so silent suppression is
+    // preferable to a visual collision.
+    const h = canvas.height;
+    const text = `+${total} TICKETS`;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 16px monospace';
+    const tw = ctx.measureText(text).width;
+    const padX = 14;
+    const pillW = tw + padX * 2;
+    const pillH = 26;
+    const balLineH = 16;
+    const blockGap = 12;
+    const rankGuard = 8;
+    const restart = this.getRestartButtonRect(canvas);
+    const pillYAboveRestart = restart.y - blockGap - balLineH - pillH;
+    const pillYBelowRank = h * 0.67 + rankGuard;
+    if (pillYAboveRestart < pillYBelowRank) {
+      ctx.restore();
+      return;
+    }
+    const pillY = pillYAboveRestart;
+    const pillX = w / 2 - pillW / 2;
+
+    ctx.fillStyle = 'rgba(255,211,77,0.14)';
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#ffd34d';
+    ctx.shadowBlur = 8;
+    this._roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#fff6c0';
+    ctx.fillText(text, w / 2, pillY + pillH / 2 + 6);
+
+    // Balance line just below the pill: "BALANCE <icon> N" so the player
+    // sees what they have to spend in the Store. Uses the same notched
+    // ticket glyph rendered elsewhere in the UI.
+    ctx.font = '12px monospace';
+    const labelText = 'BALANCE';
+    const balText = `${balance}`;
+    const iconW = 16;
+    const iconH = 9;
+    const gap = 4;
+    const labelW = ctx.measureText(labelText).width;
+    const balW = ctx.measureText(balText).width;
+    const totalW = labelW + gap + iconW + gap + balW;
+    const baseY = pillY + pillH + 14;
+    const lx = w / 2 - totalW / 2;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,211,77,0.7)';
+    ctx.fillText(labelText, lx, baseY);
+    ctx.drawImage(getTicketIcon('gold'), lx + labelW + gap, baseY - iconH + 1, iconW, iconH);
+    ctx.fillStyle = '#fff6c0';
+    ctx.fillText(balText, lx + labelW + gap + iconW + gap, baseY);
     ctx.restore();
   }
 

@@ -1,14 +1,29 @@
 // HUD overlay - score, time, stage, streak, notifications
 
 import { COLORS, BONUS_TIME_THRESHOLD } from './utils.js';
+import { tickets } from './tickets.js';
+import * as coinAnim from './coinAnim.js';
+import { getTicketSprite, ticketSize, getTicketIcon } from './ticketSprite.js';
 
 export class HUD {
   constructor() {
-    this.notifications = []; // { text, timer, maxTimer }
+    // Notifications hold either { text } or { ticket: number } — text gets
+    // bold monospace, ticket gets a pop-in arcade-paper-ticket sprite. Both
+    // share the stack-layout + scale/fade animation.
+    this.notifications = [];
+    coinAnim.setInitialBalance(tickets.balance());
   }
 
   addNotification(text, duration = 0.8) {
     this.notifications.push({ text, timer: duration, maxTimer: duration });
+  }
+
+  // Show an arcade-paper-ticket sprite for the awarded amount. Defaults to a
+  // slightly longer duration than the text notifications so the player has
+  // time to read the number on the sprite.
+  addTicketNotification(amount, duration = 0.9) {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    this.notifications.push({ ticket: amount, timer: duration, maxTimer: duration });
   }
 
   update(dt) {
@@ -18,6 +33,72 @@ export class HUD {
         this.notifications.splice(i, 1);
       }
     }
+    coinAnim.update(dt);
+  }
+
+  // The persistent ticket counter rect — used by the coin animation as the
+  // destination for flying sprites. Anchored under STAGE in the top-right.
+  getTicketCounterRect(canvas) {
+    const padding = 20;
+    const w = 110;
+    const h = 26;
+    return { x: canvas.width - padding - w, y: padding + 60, w, h };
+  }
+
+  _drawTicketCounter(ctx, canvas) {
+    const rect = this.getTicketCounterRect(canvas);
+    coinAnim.setCounterDst(rect.x + rect.w / 2, rect.y + rect.h / 2);
+
+    const balance = coinAnim.getDisplayedBalance();
+    const pulse = coinAnim.getPulseFactor();
+
+    ctx.save();
+    // Pill background
+    ctx.fillStyle = 'rgba(255,211,77,0.12)';
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 1.2;
+    this._roundRect(ctx, rect.x, rect.y, rect.w, rect.h, rect.h / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Ticket glyph — the same notched-paper silhouette as the flying
+    // sprites, just stripped of the inner text so it reads at pill scale.
+    const icon = getTicketIcon('gold');
+    const iconW = 22;
+    const iconH = 12;
+    const iconX = rect.x + 6;
+    const iconY = rect.y + (rect.h - iconH) / 2;
+    ctx.drawImage(icon, iconX, iconY, iconW, iconH);
+
+    // Numeric balance with pulse-scale
+    ctx.translate(rect.x + rect.w - 10, rect.y + rect.h / 2 + 5);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = '#fff6c0';
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`${balance}`, 0, 0);
+    ctx.restore();
+  }
+
+  // Render the persistent ticket counter and any in-flight coin sprites.
+  // Safe to call from any in-game HUD (Classic/Distance/Endless).
+  renderTicketsOverlay(ctx, canvas) {
+    this._drawTicketCounter(ctx, canvas);
+    coinAnim.render(ctx);
+  }
+
+  _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
   }
 
   render(ctx, canvas, scoring) {
@@ -107,6 +188,9 @@ export class HUD {
       ctx.fillText('STREAK', w - padding, h * 0.45 - 22);
     }
 
+    // Persistent ticket counter + flying coins
+    this.renderTicketsOverlay(ctx, canvas);
+
     // Notifications (center screen, pop-up text)
     this._renderNotifications(ctx, w, h);
   }
@@ -137,15 +221,33 @@ export class HUD {
       const y = h * 0.4 + i * 50;
       ctx.save();
       ctx.translate(w / 2, y);
-      ctx.scale(scale, scale);
       ctx.globalAlpha = alpha;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = COLORS.white;
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.lineWidth = 4;
-      ctx.font = 'bold 36px monospace';
-      ctx.strokeText(notif.text, 0, 0);
-      ctx.fillText(notif.text, 0, 0);
+
+      if (notif.ticket !== undefined) {
+        // Arcade-ticket sprite. A tiny wiggle rotation as it pops in gives
+        // it the falling-paper feel without the cost of full physics.
+        const wiggle = progress < 0.3 ? (1 - progress / 0.3) * 0.12 : 0;
+        const rot = Math.sin(progress * Math.PI * 4) * wiggle;
+        // Pop overshoot for extra arcade feel — pulses to 1.18x then settles.
+        const pop = progress < 0.2
+          ? scale * (1 + Math.sin(progress / 0.2 * Math.PI) * 0.12)
+          : scale;
+        ctx.rotate(rot);
+        ctx.scale(pop, pop);
+        const sprite = getTicketSprite(notif.ticket);
+        const { w: tw, h: th } = ticketSize();
+        ctx.drawImage(sprite, -tw / 2, -th / 2, tw, th);
+      } else {
+        ctx.scale(scale, scale);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = COLORS.white;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 4;
+        ctx.font = 'bold 36px monospace';
+        ctx.strokeText(notif.text, 0, 0);
+        ctx.fillText(notif.text, 0, 0);
+      }
+
       ctx.restore();
     }
     ctx.globalAlpha = 1;

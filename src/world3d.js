@@ -3,6 +3,8 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { getSkin } from './storeData.js';
+import { getCourtTexture } from './skins.js';
 
 export const COURT = {
   rim: new THREE.Vector3(0, 3.05, -3),     // rim center (regulation 10ft)
@@ -114,23 +116,31 @@ export class World3D {
   }
 
   _buildCourt() {
-    // Court floor — hardwood
-    const floorTex = makeWoodTexture();
+    // Court floor — built with the default court skin. applyCourtSkin() can
+    // swap the texture + material params later without rebuilding geometry.
+    // Going through getCourtTexture (rather than makeCourtTexture directly)
+    // seeds the per-skin texture cache with the default, so a later
+    // applyCourtSkin('default') doesn't rasterize a new canvas just to land
+    // back on the same look.
+    const defaultSkin = getSkin('court', 'default');
+    const floorTex = getCourtTexture('default');
     floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
     floorTex.repeat.set(6, 12);
     const floorMat = new THREE.MeshStandardMaterial({
       map: floorTex,
-      roughness: 0.55,
-      metalness: 0.05,
+      roughness: defaultSkin.params.roughness ?? 0.55,
+      metalness: defaultSkin.params.metalness ?? 0.05,
     });
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 30), floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = COURT.floorY;
     floor.receiveShadow = true;
     this.scene.add(floor);
+    this.floor = floor;
+    this.currentCourtSkinId = 'default';
 
-    // Painted lines on floor — three-point arc + key
-    this._addCourtLines();
+    // Painted lines on floor — three-point arc + key (color comes from skin)
+    this._addCourtLines(defaultSkin.params.line);
 
     // Back wall behind the hoop
     const backWall = new THREE.Mesh(
@@ -155,8 +165,15 @@ export class World3D {
     // Stanchion + arm + backboard frame are added by Hoop3D
   }
 
-  _addCourtLines() {
-    const lineMat = new THREE.LineBasicMaterial({ color: 0xeeeeee, transparent: true, opacity: 0.7 });
+  _addCourtLines(lineColor = '#eeeeee') {
+    // One shared material so applyCourtSkin can recolor every line in one
+    // place. Stored on `this.lineMat` for later mutation.
+    const lineMat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(lineColor),
+      transparent: true,
+      opacity: 0.7,
+    });
+    this.lineMat = lineMat;
 
     // Three-point arc (radius 6.75m from hoop center, projected on floor)
     const arcPts = [];
@@ -187,6 +204,29 @@ export class World3D {
     }
     const ft = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ftCirc), lineMat);
     this.scene.add(ft);
+  }
+
+  // Swap the court floor texture + material params and recolor the painted
+  // lines. Called by skins.js when the equipped court skin changes (live in
+  // the store preview, or on game start). No geometry rebuild — only the
+  // material and texture are replaced.
+  applyCourtSkin(skinId) {
+    const skin = getSkin('court', skinId);
+    if (!skin || !this.floor) return;
+    if (skinId === this.currentCourtSkinId) return;
+    // Pull from the skins.js court cache so repeated previews don't re-paint
+    // the 256×256 canvas. The cache owns the texture lifetime — we never
+    // dispose maps swapped out by this call, since they may still be in the
+    // cache and reachable by another preview tap.
+    const tex = getCourtTexture(skinId);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(6, 12);
+    this.floor.material.map = tex;
+    this.floor.material.roughness = skin.params.roughness ?? 0.55;
+    this.floor.material.metalness = skin.params.metalness ?? 0.05;
+    this.floor.material.needsUpdate = true;
+    if (this.lineMat) this.lineMat.color.set(skin.params.line);
+    this.currentCourtSkinId = skinId;
   }
 
   _buildFloorBody() {
@@ -240,119 +280,3 @@ export class World3D {
   }
 }
 
-// ── Procedural textures ──────────────────────────────────────────────────
-
-export function makeBasketballTexture() {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 512;
-  const g = c.getContext('2d');
-
-  // Base orange leather with subtle gradient
-  const grd = g.createLinearGradient(0, 0, 0, c.height);
-  grd.addColorStop(0, '#d76318');
-  grd.addColorStop(0.5, '#e3741f');
-  grd.addColorStop(1, '#bf551a');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, c.width, c.height);
-
-  // Pebble grain (lots of tiny dots)
-  for (let i = 0; i < 18000; i++) {
-    const x = Math.random() * c.width;
-    const y = Math.random() * c.height;
-    const r = Math.random() * 1.4 + 0.3;
-    g.fillStyle = `rgba(${Math.random() < 0.5 ? '90,40,10' : '255,200,160'},${Math.random() * 0.18})`;
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
-  }
-
-  // Seam lines — black, thick. The classic 8-panel pattern uses 1 horizontal seam
-  // (equator) plus 4 vertical seams forming great circles. On a UV-mapped sphere,
-  // vertical seams appear as straight lines at u = 0, 0.25, 0.5, 0.75.
-  g.strokeStyle = '#1a0c04';
-  g.lineWidth = 6;
-  g.lineCap = 'round';
-
-  // Horizontal equator
-  g.beginPath();
-  g.moveTo(0, c.height / 2);
-  g.lineTo(c.width, c.height / 2);
-  g.stroke();
-
-  // Vertical seams (curve toward poles)
-  for (let i = 0; i < 4; i++) {
-    const x = (i + 0.5) * (c.width / 4);
-    g.beginPath();
-    g.moveTo(x, 0);
-    g.lineTo(x, c.height);
-    g.stroke();
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
-}
-
-export function makeBasketballBumpMap() {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#888';
-  g.fillRect(0, 0, c.width, c.height);
-  for (let i = 0; i < 15000; i++) {
-    const x = Math.random() * c.width;
-    const y = Math.random() * c.height;
-    const r = Math.random() * 1.2 + 0.4;
-    g.fillStyle = Math.random() < 0.5 ? '#bbb' : '#555';
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
-  }
-  // seams as deep black
-  g.strokeStyle = '#000';
-  g.lineWidth = 4;
-  g.beginPath();
-  g.moveTo(0, c.height / 2); g.lineTo(c.width, c.height / 2);
-  g.stroke();
-  for (let i = 0; i < 4; i++) {
-    const x = (i + 0.5) * (c.width / 4);
-    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, c.height); g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function makeWoodTexture() {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 256;
-  const g = c.getContext('2d');
-
-  // base
-  g.fillStyle = '#a06a2c';
-  g.fillRect(0, 0, c.width, c.height);
-
-  // plank stripes
-  for (let y = 0; y < c.height; y += 32) {
-    const shade = 130 + Math.floor(Math.random() * 35);
-    g.fillStyle = `rgb(${shade + 35}, ${shade - 5}, ${shade - 60})`;
-    g.fillRect(0, y, c.width, 30);
-    g.fillStyle = 'rgba(40, 22, 8, 0.6)';
-    g.fillRect(0, y + 30, c.width, 2);
-  }
-
-  // grain noise
-  for (let i = 0; i < 1200; i++) {
-    g.fillStyle = `rgba(60, 30, 12, ${Math.random() * 0.18})`;
-    g.fillRect(Math.random() * c.width, Math.random() * c.height, Math.random() * 60, 1);
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
-}
