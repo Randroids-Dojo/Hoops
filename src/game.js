@@ -15,6 +15,7 @@ import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 import { settings } from './settings.js';
+import { Tutorial } from './tutorial.js';
 import { tickets } from './tickets.js';
 import { AWARDS } from './storeData.js';
 import { STREAK } from './utils.js';
@@ -79,6 +80,7 @@ export class Game {
     this.scoring = new Scoring();
     this.screens = new Screens();
     this.leaderboard = new Leaderboard();
+    this.tutorial = new Tutorial();
 
     this.edgePulseTimer = 0;
     this.previousState = null; // for pause
@@ -228,6 +230,9 @@ export class Game {
         this.activeBall.setStreakLevel(this.scoring.getStreakLevel());
         this.activeBall.throwBall(launchPower, lateralAngle);
         this.audio.playThrow();
+        // First throw of the player's first-ever game completes the
+        // tutorial — one full drag-aim-and-release is the lesson.
+        this.tutorial.onThrow();
       }
     };
 
@@ -756,6 +761,9 @@ export class Game {
       mode === GAME_MODE.CLASSIC ? this.scoring.stageData.hoopAmplitude : 0,
     );
     this.hoop.setFireIntensity(0);
+    // Arms the first-run overlay if the player has never released a throw
+    // before. No-op once the tutorial has been completed in any mode.
+    this.tutorial.begin();
   }
 
   _resetBallPool() {
@@ -864,9 +872,14 @@ export class Game {
       this._meterPhase = 0;
     }
     if (dragging) {
-      this._meterPhase += dt * 2 * Math.PI * this._meterRateHz;
+      // Tutorial slows the sweep so a first-time player has a fair chance
+      // of timing PERFECT. After the tutorial is dismissed, this returns
+      // the configured default rate unchanged.
+      const rateHz = this.tutorial.meterRateHz(this._meterRateHz);
+      this._meterPhase += dt * 2 * Math.PI * rateHz;
     }
     this._wasDragging = dragging;
+    this.tutorial.update(dt, this);
 
     // Fire particles on hoop when streak active
     const streakLevel = this.scoring.getStreakLevel();
@@ -1217,6 +1230,12 @@ export class Game {
       // for the current meter power and aim direction.
       if (this.state === 'playing' && this.input.isDragging() && !this.activeBall.active) {
         this._renderAimArc(ctx);
+      }
+
+      // First-run tutorial overlay sits on top so its hotspots can call out
+      // the ball, hoop, and power meter without being hidden by the HUD.
+      if (this.state === 'playing') {
+        this.tutorial.render(ctx, canvas, this);
       }
       return;
     }
