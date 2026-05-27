@@ -20,12 +20,19 @@ import { settings } from './settings.js';
 const STORAGE_KEY = 'hoops-tutorial-v1';
 const Schema = z.object({ completed: z.boolean().optional() });
 
-// Phases the overlay cycles through. AIM → RELEASE on first drag-start,
-// RELEASE → AIM if the player cancels a drag without throwing, and
-// onThrow() ends the tutorial regardless of phase.
+// Phases the overlay cycles through. The tutorial only ends once the
+// player has actually *made* a basket — missed shots loop back to AIM so
+// the player keeps practicing until they sink one.
+//
+//   AIM     → RELEASE   on drag-start
+//   RELEASE → AIM       on cancelled drag (no throw)
+//   RELEASE → FLIGHT    on released throw
+//   FLIGHT  → DONE      on score
+//   FLIGHT  → AIM       on miss (and "Try again!" banner appears)
 const PHASE = {
   AIM: 'aim',
   RELEASE: 'release',
+  FLIGHT: 'flight',
   DONE: 'done',
 };
 
@@ -51,6 +58,8 @@ export class Tutorial {
     this.active = false;
     this.phase = PHASE.DONE;
     this.elapsed = 0;
+    this.attempts = 0;     // how many shots the player has taken so far
+    this.lastMissed = false; // shows "TRY AGAIN" banner after a miss
     this._wasDragging = false;
   }
 
@@ -66,21 +75,47 @@ export class Tutorial {
     this.active = true;
     this.phase = PHASE.AIM;
     this.elapsed = 0;
+    this.attempts = 0;
+    this.lastMissed = false;
     this._wasDragging = false;
   }
 
-  // Called by the game's throw callback. One released throw ends the
-  // tutorial regardless of where the meter was at release — the player
-  // has performed the full drag-aim-and-release rep, which is the lesson.
+  // The game freezes all clocks (countdown, run elapsed, bonus-time) for as
+  // long as the tutorial is active. This way a new player can take all the
+  // time they need to learn the controls without burning their first game.
+  pausesGameClocks() {
+    return this.active;
+  }
+
+  // Called by the game's throw callback the moment a shot is released.
+  // Moves the tutorial into FLIGHT — the overlay hides while the ball is
+  // in the air; onMake() / onMiss() resolves the phase from there.
   onThrow() {
     if (!this.active) return;
+    this.attempts += 1;
+    this.phase = PHASE.FLIGHT;
+    this.lastMissed = false;
+  }
+
+  // Made the basket — the lesson is complete.
+  onMake() {
+    if (!this.active) return;
     this._markCompleted();
+  }
+
+  // Missed — loop back to AIM and prompt the player to try again. The
+  // overlay re-arms automatically once the next ball is promoted.
+  onMiss() {
+    if (!this.active) return;
+    this.phase = PHASE.AIM;
+    this.lastMissed = true;
   }
 
   _markCompleted() {
     this.completed = true;
     this.active = false;
     this.phase = PHASE.DONE;
+    this.lastMissed = false;
     writeStorage(STORAGE_KEY, { completed: true });
   }
 
@@ -107,6 +142,11 @@ export class Tutorial {
 
   render(ctx, canvas, game) {
     if (!this.active) return;
+    // While the ball is in flight, hide the overlay so the player can
+    // watch the shot. The phase resolves to AIM (after miss) or DONE
+    // (after make) as soon as the ball reports its outcome.
+    if (this.phase === PHASE.FLIGHT) return;
+
     const pulse = (Math.sin(this.elapsed * 3.2) + 1) / 2;
 
     if (this.phase === PHASE.AIM) {
@@ -141,12 +181,20 @@ export class Tutorial {
     // Target ring on the rim — the destination, also pulsing.
     this._drawPulseRing(ctx, rim.x, rim.y, 30, 18, pulse, COLORS.scoreGreen);
 
+    // After a miss the banner switches to a "TRY AGAIN" framing so the
+    // player understands they need to sink one to finish the tutorial.
+    const label = this.lastMissed
+      ? 'TUTORIAL — TRY AGAIN'
+      : 'TUTORIAL — STEP 1 / 2';
+    const subtitle = this.lastMissed
+      ? 'Sink one shot to finish the tutorial'
+      : 'Aim until the line turns GREEN at the rim';
     this._drawBanner(
       ctx,
       canvas,
-      'TUTORIAL — STEP 1 / 2',
+      label,
       'Swipe from the ball toward the hoop',
-      'Aim until the line turns GREEN at the rim',
+      subtitle,
     );
   }
 

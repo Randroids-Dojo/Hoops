@@ -230,8 +230,8 @@ export class Game {
         this.activeBall.setStreakLevel(this.scoring.getStreakLevel());
         this.activeBall.throwBall(launchPower, lateralAngle);
         this.audio.playThrow();
-        // First throw of the player's first-ever game completes the
-        // tutorial — one full drag-aim-and-release is the lesson.
+        // Hide the tutorial overlay while the ball is in flight; the
+        // outcome (make / miss) decides whether the lesson ends or loops.
         this.tutorial.onThrow();
       }
     };
@@ -890,8 +890,16 @@ export class Game {
       this.hoop.setFireIntensity(0);
     }
 
+    // While the first-run tutorial is active, freeze every clock so a brand
+    // new player can take all the time they need on shot #1. Classic
+    // countdown, Distance run-elapsed, and Endless countdown all pause
+    // until the player has sunk their first basket and the overlay clears.
     let timerResult = { timeUp: false, bonusTimeJustStarted: false };
-    if (this.gameMode === GAME_MODE.DISTANCE) {
+    const clocksFrozen = this.tutorial.pausesGameClocks();
+    if (clocksFrozen) {
+      // Keep Classic bonus-time visuals quiet during the tutorial.
+      this.scoring.bonusTimeActive = false;
+    } else if (this.gameMode === GAME_MODE.DISTANCE) {
       this.distanceRun.elapsed += dt;
     } else if (this.gameMode === GAME_MODE.ENDLESS) {
       this.endlessRun.elapsed += dt;
@@ -965,6 +973,9 @@ export class Game {
     ball.active = false;
     ball.scored = true;
     ball.hasContacted = true;
+    // A made basket is the lesson — first make completes the tutorial in
+    // any mode. onMake() is a no-op once already completed.
+    this.tutorial.onMake();
 
     if (this.gameMode === GAME_MODE.DISTANCE) {
       this._onDistanceScore(isSwish);
@@ -1073,6 +1084,9 @@ export class Game {
     ball.hasContacted = true;
     this.scoring.missShot();
     this.audio.playMiss();
+    // A missed tutorial shot loops the overlay back to Step 1 with a
+    // "TRY AGAIN" framing — the player keeps practicing until they sink one.
+    this.tutorial.onMiss();
 
     if (this.gameMode === GAME_MODE.DISTANCE) {
       const run = this.distanceRun;
