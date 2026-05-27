@@ -106,10 +106,15 @@ export function loadBallImageTexture(url) {
       (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = 8;
-        // Repeat the image so the UV-mapped sphere doesn't show a single
-        // stretched copy with a hard seam down the back.
         tex.wrapS = THREE.RepeatWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
+        // Three.js SphereGeometry maps geometry-u=0 to −X, u=0.25 to +Z (the
+        // side that faces the camera at spawn). Portrait photos have their
+        // subject centered at texture-u=0.5, which without an offset lands
+        // on the +X side of the ball — out of view. Shift the texture so
+        // the photo's center column samples at the +Z meridian, putting the
+        // face front-and-center when the player draws back to shoot.
+        tex.offset.x = 0.25;
         tex.needsUpdate = true;
         resolve({ map: tex, bumpMap: _makeBallBump() });
       },
