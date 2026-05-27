@@ -3,6 +3,7 @@
 import { COLORS } from './utils.js';
 import { tickets } from './tickets.js';
 import { StoreScreen } from './storeScreen.js';
+import { getTicketIcon } from './ticketSprite.js';
 
 // Pause menu button order (top-to-bottom) and their labels. Keep these in
 // sync — both render and hit-test iterate PAUSE_MENU_KEYS.
@@ -317,8 +318,9 @@ export class Screens {
     ctx.font = 'bold 12px monospace';
     const numW = ctx.measureText(text).width;
     const padX = 8;
-    const coinR = 7;
-    const w = numW + coinR * 2 + padX * 2 + 6;
+    const iconW = 18;
+    const iconH = 10;
+    const w = numW + iconW + padX * 2 + 6;
     const h = 22;
     const x = anchorRect.x + anchorRect.w - w;
     const y = anchorRect.y - h - 4;
@@ -330,18 +332,12 @@ export class Screens {
     ctx.fill();
     ctx.stroke();
 
-    // Coin glyph
-    ctx.fillStyle = '#ffd34d';
-    ctx.beginPath();
-    ctx.arc(x + padX + coinR, y + h / 2, coinR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#7a5300';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Ticket glyph
+    ctx.drawImage(getTicketIcon('gold'), x + padX, y + (h - iconH) / 2, iconW, iconH);
 
     ctx.fillStyle = '#fff6c0';
     ctx.textAlign = 'left';
-    ctx.fillText(text, x + padX + coinR * 2 + 4, y + h / 2 + 4);
+    ctx.fillText(text, x + padX + iconW + 4, y + h / 2 + 4);
     ctx.restore();
   }
 
@@ -1006,7 +1002,6 @@ export class Screens {
     // button. Keeps the existing layout intact while still telling the
     // player how much they earned this run.
     const text = `+${total} TICKETS`;
-    const balText = `BALANCE  ◉ ${balance}`;
     ctx.save();
     ctx.textAlign = 'center';
     ctx.font = 'bold 16px monospace';
@@ -1030,11 +1025,26 @@ export class Screens {
     ctx.fillStyle = '#fff6c0';
     ctx.fillText(text, w / 2, pillY + pillH / 2 + 6);
 
-    // Balance line just below the pill so the player sees what they have to
-    // spend in the Store.
-    ctx.fillStyle = 'rgba(255,211,77,0.7)';
+    // Balance line just below the pill: "BALANCE <icon> N" so the player
+    // sees what they have to spend in the Store, with the same notched
+    // ticket glyph used elsewhere in place of the old ◉ coin char.
     ctx.font = '12px monospace';
-    ctx.fillText(balText, w / 2, pillY + pillH + 14);
+    const labelText = 'BALANCE';
+    const balText = `${balance}`;
+    const iconW = 16;
+    const iconH = 9;
+    const gap = 4;
+    const labelW = ctx.measureText(labelText).width;
+    const balW = ctx.measureText(balText).width;
+    const totalW = labelW + gap + iconW + gap + balW;
+    const baseY = pillY + pillH + 14;
+    const lx = w / 2 - totalW / 2;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,211,77,0.7)';
+    ctx.fillText(labelText, lx, baseY);
+    ctx.drawImage(getTicketIcon('gold'), lx + labelW + gap, baseY - iconH + 1, iconW, iconH);
+    ctx.fillStyle = '#fff6c0';
+    ctx.fillText(balText, lx + labelW + gap + iconW + gap, baseY);
     ctx.restore();
   }
 

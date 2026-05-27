@@ -1,13 +1,18 @@
-// Flying ticket-coin sprites + counter count-up tween. Each award spawns a
-// short burst of coin sprites that arc from a source pixel to the ticket
+// Flying ticket sprites + counter count-up tween. Each award spawns a short
+// burst of ticket sprites that arc from a source pixel to the ticket
 // counter, then triggers a count-up tween on the displayed balance. Kept in
 // its own module so HUD layout code stays focused on rendering.
+
+import { getTicketIcon } from './ticketSprite.js';
 
 const COIN_FLIGHT_MIN = 0.55;
 const COIN_FLIGHT_MAX = 0.85;
 const COUNT_UP_MS = 380;
 const PULSE_MS = 220;
 const MAX_VISIBLE_COINS = 8; // a 50-coin UNSTOPPABLE shouldn't drown the screen
+// Rendered size of each in-flight ticket sprite, in CSS pixels.
+const FLY_TICKET_W = 30;
+const FLY_TICKET_H = 16;
 
 let coins = []; // active flying sprites
 let displayedBalance = 0; // currently rendered balance (lerped)
@@ -15,37 +20,6 @@ let trueBalance = 0;      // target balance
 let countUpFrom = 0;
 let countUpStart = 0;
 let pulseStart = -1;
-
-let coinSprite = null;
-
-function _buildCoinSprite() {
-  if (coinSprite) return coinSprite;
-  const c = document.createElement('canvas');
-  c.width = 24;
-  c.height = 24;
-  const g = c.getContext('2d');
-  const cx = 12, cy = 12, r = 10;
-
-  // Gold radial fill
-  const grd = g.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, r);
-  grd.addColorStop(0, '#ffe98c');
-  grd.addColorStop(0.5, '#ffd34d');
-  grd.addColorStop(1, '#c69215');
-  g.fillStyle = grd;
-  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
-  // Rim
-  g.strokeStyle = '#7a5300';
-  g.lineWidth = 1.5;
-  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
-  // Inner ball-glyph (small basketball outline)
-  g.strokeStyle = '#7a5300';
-  g.lineWidth = 1.2;
-  g.beginPath(); g.moveTo(cx - 4, cy); g.lineTo(cx + 4, cy); g.stroke();
-  g.beginPath(); g.moveTo(cx, cy - 4); g.lineTo(cx, cy + 4); g.stroke();
-
-  coinSprite = c;
-  return c;
-}
 
 // Initialize the displayed balance without animating.
 export function setInitialBalance(n) {
@@ -73,6 +47,10 @@ export function spawnBurst(sx, sy, dx, dy, count, payout) {
       start: now + stagger,
       duration,
       arrived: false,
+      // ±1 rotations over the flight, alternating sign per sprite in the
+      // burst so half wobble clockwise and half counter, keeping the swarm
+      // organic.
+      spin: (i % 2 === 0 ? 1 : -1) * (0.4 + Math.random() * 0.6),
     });
   }
   // The payout is committed to the counter as the LAST coin arrives — that
@@ -112,10 +90,13 @@ function _commitPayout(balanceAfter) {
   pulseStart = performance.now();
 }
 
-// Render flying coins. Called from hud.js between particles and notifications.
+// Render flying tickets. Called from hud.js between particles and
+// notifications. Each ticket spins slightly as it flies for that
+// fluttering-paper feel; spin direction alternates per sprite so the
+// burst doesn't look mechanical.
 export function render(ctx) {
   if (coins.length === 0) return;
-  const sprite = _buildCoinSprite();
+  const sprite = getTicketIcon('gold');
   const now = performance.now() / 1000;
   ctx.save();
   for (const c of coins) {
@@ -124,10 +105,15 @@ export function render(ctx) {
     const x = omt * omt * c.sx + 2 * omt * t * c.cx + t * t * c.dx;
     const y = omt * omt * c.sy + 2 * omt * t * c.cy + t * t * c.dy;
     const scale = 0.8 + 0.6 * Math.sin(t * Math.PI); // grow then shrink
-    const w = 24 * scale;
-    const h = 24 * scale;
+    const w = FLY_TICKET_W * scale;
+    const h = FLY_TICKET_H * scale;
+    const spin = c.spin * t * Math.PI * 2;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(spin);
     ctx.globalAlpha = 0.95;
-    ctx.drawImage(sprite, x - w / 2, y - h / 2, w, h);
+    ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+    ctx.restore();
   }
   ctx.restore();
 }

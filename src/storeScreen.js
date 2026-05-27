@@ -6,6 +6,7 @@ import { COLORS } from './utils.js';
 import { CATALOG, RARITIES, CATEGORIES, getSkin } from './storeData.js';
 import { tickets } from './tickets.js';
 import { drawSkinThumbnail } from './skins.js';
+import { getTicketIcon } from './ticketSprite.js';
 
 const TAB_LABELS = { ball: 'BALLS', backboard: 'BACKBOARDS', court: 'COURTS' };
 const GRID_COLS = 2;
@@ -228,14 +229,10 @@ export class StoreScreen {
     ctx.fill();
     ctx.stroke();
 
-    // Coin glyph
-    ctx.fillStyle = '#ffd34d';
-    ctx.beginPath();
-    ctx.arc(bal.x + 16, bal.y + bal.h / 2, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#7a5300';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // Ticket glyph
+    const iconW = 24;
+    const iconH = 13;
+    ctx.drawImage(getTicketIcon('gold'), bal.x + 8, bal.y + (bal.h - iconH) / 2, iconW, iconH);
 
     ctx.fillStyle = '#fff6c0';
     ctx.font = 'bold 16px monospace';
@@ -345,21 +342,17 @@ export class StoreScreen {
       ctx.textAlign = 'right';
       ctx.fillText('TAP TO EQUIP', rect.x + rect.w - 10, ctaY);
     } else {
-      // Coin + price
+      // Ticket icon + price. Price text is right-aligned against the card
+      // edge; the icon sits just left of the number.
       const px = rect.x + rect.w - 10;
       ctx.textAlign = 'right';
       ctx.fillStyle = '#fff6c0';
       ctx.font = 'bold 13px monospace';
       ctx.fillText(`${skin.price}`, px, ctaY);
-      // Coin glyph just left of the number
       const numW = ctx.measureText(`${skin.price}`).width;
-      ctx.fillStyle = '#ffd34d';
-      ctx.beginPath();
-      ctx.arc(px - numW - 10, ctaY - 4, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#7a5300';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      const iconW = 18;
+      const iconH = 10;
+      ctx.drawImage(getTicketIcon('gold'), px - numW - iconW - 4, ctaY - iconH + 1, iconW, iconH);
     }
     ctx.restore();
   }
@@ -381,10 +374,24 @@ export class StoreScreen {
     ctx.fill();
     ctx.stroke();
     ctx.shadowBlur = 0;
+    // "BUY <ticket-icon> N" — measure the parts so the icon stays centered
+    // between the verb and the price rather than baked into the string.
     ctx.fillStyle = '#fff6c0';
-    ctx.textAlign = 'center';
     ctx.font = 'bold 18px monospace';
-    ctx.fillText(`BUY  ◉ ${skin.price}`, r.x + r.w / 2, r.y + r.h / 2 + 7);
+    const verb = 'BUY';
+    const priceText = `${skin.price}`;
+    const verbW = ctx.measureText(verb).width;
+    const priceW = ctx.measureText(priceText).width;
+    const iconW = 26;
+    const iconH = 14;
+    const gap = 10;
+    const totalW = verbW + gap + iconW + gap + priceW;
+    const startX = r.x + r.w / 2 - totalW / 2;
+    const baseY = r.y + r.h / 2 + 7;
+    ctx.textAlign = 'left';
+    ctx.fillText(verb, startX, baseY);
+    ctx.drawImage(getTicketIcon('gold'), startX + verbW + gap, baseY - iconH + 1, iconW, iconH);
+    ctx.fillText(priceText, startX + verbW + gap + iconW + gap, baseY);
     ctx.restore();
   }
 

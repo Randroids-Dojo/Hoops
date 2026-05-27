@@ -11,6 +11,7 @@
 // with two perforated tear-stubs on the ends (notched edges + dashed line).
 
 const CACHE = new Map();
+const ICON_CACHE = new Map();
 
 const TICKET_W = 160;
 const TICKET_H = 56;
@@ -25,6 +26,25 @@ export function getTicketSprite(amount) {
 
 export function ticketSize() {
   return { w: TICKET_W, h: TICKET_H };
+}
+
+// Small currency-glyph version of the ticket — no number, no "TICKETS"
+// caption, just the recognizable notched silhouette with a single dashed
+// perforation. Used wherever a coin-style inline glyph is needed (HUD
+// counter pill, store price tags, BUY button, game-over balance line).
+// `kind` is 'gold' (default) for the running balance / earnings glyph or
+// 'red' for the single-ticket variant.
+export function getTicketIcon(kind = 'gold') {
+  if (ICON_CACHE.has(kind)) return ICON_CACHE.get(kind);
+  const canvas = _renderTicketIcon(kind);
+  ICON_CACHE.set(kind, canvas);
+  return canvas;
+}
+
+// Reference dimensions for the icon — callers can scale freely with
+// drawImage's w/h parameters; this gives the natural aspect ratio.
+export function ticketIconSize() {
+  return { w: 26, h: 14 };
 }
 
 function _renderTicket(amount) {
@@ -120,6 +140,90 @@ function _renderTicket(amount) {
   }
 
   return c;
+}
+
+// Compact glyph version — same silhouette as the full sprite, but stripped
+// of the inner stub lines and stamp text so it stays legible at ~14-20px.
+// Drawn at 4x oversampling so the scalloped notches don't pixelate when the
+// caller scales it down for a price tag.
+function _renderTicketIcon(kind) {
+  const W = 26;
+  const H = 14;
+  const scale = 4;
+  const c = document.createElement('canvas');
+  c.width = W * scale;
+  c.height = H * scale;
+  const g = c.getContext('2d');
+  g.scale(scale, scale);
+
+  const isGold = kind !== 'red';
+  const palette = isGold
+    ? { base: '#ffd34d', edge: '#7a5300', glint: 'rgba(255,255,255,0.35)' }
+    : { base: '#d65a3a', edge: '#5a1810', glint: 'rgba(255,255,255,0.28)' };
+
+  // Body with notched edges (same path geometry as the full ticket, just
+  // smaller). Subtle glow underneath so it lifts off dark HUD pills.
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.45)';
+  g.shadowBlur = 2;
+  g.shadowOffsetY = 0.5;
+  _drawTicketIconPath(g, 0.6, 1, W - 1.2, H - 2);
+  g.fillStyle = palette.base;
+  g.fill();
+  g.restore();
+
+  // Top-half highlight gradient for cheap 3D
+  const grad = g.createLinearGradient(0, 1, 0, H - 1);
+  grad.addColorStop(0, palette.glint);
+  grad.addColorStop(0.55, 'rgba(255,255,255,0)');
+  _drawTicketIconPath(g, 0.6, 1, W - 1.2, H - 2);
+  g.fillStyle = grad;
+  g.fill();
+
+  // Outline
+  _drawTicketIconPath(g, 0.6, 1, W - 1.2, H - 2);
+  g.strokeStyle = palette.edge;
+  g.lineWidth = 0.9;
+  g.stroke();
+
+  // Single dashed perforation line down the middle so the silhouette still
+  // reads as "ticket" rather than "pill" at small sizes.
+  g.save();
+  g.strokeStyle = palette.edge;
+  g.lineWidth = 0.6;
+  g.setLineDash([1, 1.2]);
+  g.beginPath();
+  g.moveTo(W / 2, 3);
+  g.lineTo(W / 2, H - 3);
+  g.stroke();
+  g.restore();
+
+  return c;
+}
+
+// Smaller version of the notched-edge path used by the icon. Geometry is
+// the same shape as _drawTicketPath but with tighter radii suited to a
+// 26×14 canvas.
+function _drawTicketIconPath(g, x, y, w, h) {
+  const r = 2;
+  const nr = 1.6;
+  const nx1 = x + w * 0.5;
+
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.lineTo(nx1 - nr, y);
+  g.arc(nx1, y, nr, Math.PI, 0, true);
+  g.lineTo(x + w - r, y);
+  g.arcTo(x + w, y, x + w, y + r, r);
+  g.lineTo(x + w, y + h - r);
+  g.arcTo(x + w, y + h, x + w - r, y + h, r);
+  g.lineTo(nx1 + nr, y + h);
+  g.arc(nx1, y + h, nr, 0, Math.PI, true);
+  g.lineTo(x + r, y + h);
+  g.arcTo(x, y + h, x, y + h - r, r);
+  g.lineTo(x, y + r);
+  g.arcTo(x, y, x + r, y, r);
+  g.closePath();
 }
 
 // Rounded rectangle minus two semicircular notches (one on each long edge,

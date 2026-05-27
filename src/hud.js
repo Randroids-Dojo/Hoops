@@ -3,7 +3,7 @@
 import { COLORS, BONUS_TIME_THRESHOLD } from './utils.js';
 import { tickets } from './tickets.js';
 import * as coinAnim from './coinAnim.js';
-import { getTicketSprite, ticketSize } from './ticketSprite.js';
+import { getTicketSprite, ticketSize, getTicketIcon } from './ticketSprite.js';
 
 export class HUD {
   constructor() {
@@ -61,17 +61,14 @@ export class HUD {
     ctx.fill();
     ctx.stroke();
 
-    // Coin glyph
-    const coinR = 9;
-    const coinCX = rect.x + 6 + coinR;
-    const coinCY = rect.y + rect.h / 2;
-    ctx.fillStyle = '#ffd34d';
-    ctx.beginPath();
-    ctx.arc(coinCX, coinCY, coinR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#7a5300';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Ticket glyph — the same notched-paper silhouette as the flying
+    // sprites, just stripped of the inner text so it reads at pill scale.
+    const icon = getTicketIcon('gold');
+    const iconW = 22;
+    const iconH = 12;
+    const iconX = rect.x + 6;
+    const iconY = rect.y + (rect.h - iconH) / 2;
+    ctx.drawImage(icon, iconX, iconY, iconW, iconH);
 
     // Numeric balance with pulse-scale
     ctx.translate(rect.x + rect.w - 10, rect.y + rect.h / 2 + 5);
