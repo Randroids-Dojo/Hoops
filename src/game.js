@@ -15,6 +15,7 @@ import { Screens } from './screens.js';
 import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 import { settings } from './settings.js';
+import { Tutorial } from './tutorial.js';
 import { tickets } from './tickets.js';
 import { AWARDS } from './storeData.js';
 import { STREAK } from './utils.js';
@@ -79,6 +80,7 @@ export class Game {
     this.scoring = new Scoring();
     this.screens = new Screens();
     this.leaderboard = new Leaderboard();
+    this.tutorial = new Tutorial();
 
     this.edgePulseTimer = 0;
     this.previousState = null; // for pause
@@ -228,6 +230,9 @@ export class Game {
         this.activeBall.setStreakLevel(this.scoring.getStreakLevel());
         this.activeBall.throwBall(launchPower, lateralAngle);
         this.audio.playThrow();
+        // Hide the tutorial overlay while the ball is in flight; the
+        // outcome (make / miss) decides whether the lesson ends or loops.
+        this.tutorial.onThrow();
       }
     };
 
@@ -273,7 +278,13 @@ export class Game {
         if (this.state === 'playing' || this.state === 'paused') {
           this.togglePause();
         } else if (this.state === 'settings') {
-          this._exitSettings();
+          // ESC first dismisses an open confirm modal; a second press
+          // exits Settings entirely.
+          if (this.screens.confirmingTutorialRestart) {
+            this.screens.confirmingTutorialRestart = false;
+          } else {
+            this._exitSettings();
+          }
         } else if (this.state === 'leaderboard') {
           this._exitLeaderboard();
         } else if (this.state === 'store') {
@@ -652,10 +663,40 @@ export class Game {
   }
 
   _handleSettingsTap(x, y) {
+    // While the confirm modal is up, taps on the underlying settings
+    // controls are blocked — only YES / NO resolve it.
+    if (this.screens.confirmingTutorialRestart) {
+      const cr = this.screens.getSettingsConfirmRects(this.canvas);
+      if (this.screens._hitTest(x, y, cr.yes)) {
+        this.audio.playClick();
+        this.screens.confirmingTutorialRestart = false;
+        // Clear the completion flag, then restart the current mode.
+        // startGame() calls tutorial.begin() which arms the overlay
+        // since restart() flipped the persisted "completed" flag off.
+        this.tutorial.restart();
+        this.startGame(this.gameMode);
+        return;
+      }
+      if (this.screens._hitTest(x, y, cr.no)) {
+        this.audio.playClick();
+        this.screens.confirmingTutorialRestart = false;
+        return;
+      }
+      // Tap outside YES/NO is ignored — keeps the modal modal.
+      return;
+    }
+
     const rects = this.screens.getSettingsRects(this.canvas);
     if (this.screens._hitTest(x, y, rects.powerSide)) {
       this.audio.playClick();
       settings.togglePowerMeterSide();
+      return;
+    }
+    if (this.screens._hitTest(x, y, rects.tutorial)) {
+      // Don't restart in-place — confirm first, since the current run
+      // (and its score / streak / clock) is about to be wiped.
+      this.audio.playClick();
+      this.screens.confirmingTutorialRestart = true;
       return;
     }
     if (this.screens._hitTest(x, y, rects.back)) {
@@ -666,6 +707,9 @@ export class Game {
 
   _exitSettings() {
     this.audio.playClick();
+    // Drop any half-finished confirm dialog so it doesn't pop back up
+    // the next time the player visits Settings.
+    this.screens.confirmingTutorialRestart = false;
     this.state = 'paused';
   }
 
@@ -756,6 +800,9 @@ export class Game {
       mode === GAME_MODE.CLASSIC ? this.scoring.stageData.hoopAmplitude : 0,
     );
     this.hoop.setFireIntensity(0);
+    // Arms the first-run overlay if the player has never released a throw
+    // before. No-op once the tutorial has been completed in any mode.
+    this.tutorial.begin();
   }
 
   _resetBallPool() {
@@ -864,9 +911,14 @@ export class Game {
       this._meterPhase = 0;
     }
     if (dragging) {
-      this._meterPhase += dt * 2 * Math.PI * this._meterRateHz;
+      // Tutorial slows the sweep so a first-time player has a fair chance
+      // of timing PERFECT. After the tutorial is dismissed, this returns
+      // the configured default rate unchanged.
+      const rateHz = this.tutorial.meterRateHz(this._meterRateHz);
+      this._meterPhase += dt * 2 * Math.PI * rateHz;
     }
     this._wasDragging = dragging;
+    this.tutorial.update(dt, this);
 
     // Fire particles on hoop when streak active
     const streakLevel = this.scoring.getStreakLevel();
@@ -877,8 +929,16 @@ export class Game {
       this.hoop.setFireIntensity(0);
     }
 
+    // While the first-run tutorial is active, freeze every clock so a brand
+    // new player can take all the time they need on shot #1. Classic
+    // countdown, Distance run-elapsed, and Endless countdown all pause
+    // until the player has sunk their first basket and the overlay clears.
     let timerResult = { timeUp: false, bonusTimeJustStarted: false };
-    if (this.gameMode === GAME_MODE.DISTANCE) {
+    const clocksFrozen = this.tutorial.pausesGameClocks();
+    if (clocksFrozen) {
+      // Keep Classic bonus-time visuals quiet during the tutorial.
+      this.scoring.bonusTimeActive = false;
+    } else if (this.gameMode === GAME_MODE.DISTANCE) {
       this.distanceRun.elapsed += dt;
     } else if (this.gameMode === GAME_MODE.ENDLESS) {
       this.endlessRun.elapsed += dt;
@@ -952,6 +1012,9 @@ export class Game {
     ball.active = false;
     ball.scored = true;
     ball.hasContacted = true;
+    // A made basket is the lesson — first make completes the tutorial in
+    // any mode. onMake() is a no-op once already completed.
+    this.tutorial.onMake();
 
     if (this.gameMode === GAME_MODE.DISTANCE) {
       this._onDistanceScore(isSwish);
@@ -1060,6 +1123,9 @@ export class Game {
     ball.hasContacted = true;
     this.scoring.missShot();
     this.audio.playMiss();
+    // A missed tutorial shot loops the overlay back to Step 1 with a
+    // "TRY AGAIN" framing — the player keeps practicing until they sink one.
+    this.tutorial.onMiss();
 
     if (this.gameMode === GAME_MODE.DISTANCE) {
       const run = this.distanceRun;
@@ -1217,6 +1283,12 @@ export class Game {
       // for the current meter power and aim direction.
       if (this.state === 'playing' && this.input.isDragging() && !this.activeBall.active) {
         this._renderAimArc(ctx);
+      }
+
+      // First-run tutorial overlay sits on top so its hotspots can call out
+      // the ball, hoop, and power meter without being hidden by the HUD.
+      if (this.state === 'playing') {
+        this.tutorial.render(ctx, canvas, this);
       }
       return;
     }
