@@ -15,29 +15,29 @@ export const RARITIES = {
   legendary: { label: 'LEGENDARY', color: '#ffd34d' },
 };
 
-// Aspirational pacing. A solid 8-min Classic run lands ~120–180 tickets, so
-// a 150 common is roughly one good run, while 5500 legendary takes weeks of
-// play. Tunable from one spot.
+// Tickets are deliberately rare — there's no per-bucket payout, just
+// swishes, streak milestones, stage clears, mode completions, and (big)
+// high-score bonuses. A clean Classic run with no streaks earns ~0 tickets;
+// stringing together a few swishes + a 5-streak earns ~50; setting a new
+// all-time best pays ~1500. The cheapest skin (150) is roughly one
+// stage-clearing run; the 5500 legendaries are saved for high-score days.
 export const AWARDS = {
   firstDaily:           100,
-  shotMake:             1,
-  swish:                3,    // total for a swish, not on top of shotMake
-  streakHeatingUp:      5,
-  streakOnFire:         10,
-  streakBlazing:        20,
-  streakUnstoppable:    50,
-  stageClear:           25,
-  distanceWin:          75,
-  distanceLoss:         10,
-  endlessTimeUp:        50,
-  classicTimeUp:        30,
-  highScoreBonus:       100,
+  swish:                5,    // the only per-shot reward — swishes only
+  streakHeatingUp:      10,   // streak 3+
+  streakOnFire:         25,   // streak 5+
+  streakBlazing:        75,   // streak 7+
+  streakUnstoppable:    200,  // streak 10+
+  stageClear:           50,
+  distanceWin:          150,
+  endlessTimeUp:        75,
+  dailyHighScore:       250,  // beat your own best score from earlier today
+  allTimeHighScore:     1500, // beat your local all-time best — the headline reward
 };
 
 // Human-friendly labels for the end-of-game breakdown.
 export const AWARD_LABELS = {
   firstDaily:        'Daily bonus',
-  shotMake:          'Buckets',
   swish:             'Swishes',
   streakHeatingUp:   'Heating up',
   streakOnFire:      'On fire',
@@ -45,10 +45,9 @@ export const AWARD_LABELS = {
   streakUnstoppable: 'Unstoppable',
   stageClear:        'Stage clears',
   distanceWin:       'Distance win',
-  distanceLoss:      'Distance attempt',
   endlessTimeUp:     'Endless finish',
-  classicTimeUp:     'Run finish',
-  highScoreBonus:    'New high score',
+  dailyHighScore:    'Daily high score',
+  allTimeHighScore:  'ALL-TIME HIGH SCORE',
 };
 
 // All skins share the same shape: id, name, rarity, price, kind, params/image.

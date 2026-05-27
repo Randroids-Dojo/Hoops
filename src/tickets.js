@@ -9,6 +9,11 @@ import { AWARDS, defaultEquipped, defaultOwned, CATEGORIES, getSkin } from './st
 
 const STORAGE_KEY = 'hoops-store-v1';
 
+const DailyBestSchema = z.object({
+  date: z.string(),
+  score: z.number().int().nonnegative(),
+});
+
 const StoreSchema = z.object({
   v: z.literal(1),
   tickets: z.number().int().nonnegative(),
@@ -23,6 +28,14 @@ const StoreSchema = z.object({
     court: z.string(),
   }),
   dailyBonusDate: z.string().nullable(),
+  // Per-mode top score earned today; reset when the local date rolls over.
+  // First run of a day records-without-awarding; subsequent same-day runs
+  // pay `dailyHighScore` only when they exceed the recorded value. Marked
+  // optional so saves written by an earlier version of the app still parse.
+  dailyBests: z.object({
+    classic: DailyBestSchema.nullable(),
+    endless: DailyBestSchema.nullable(),
+  }).optional(),
   lifetime: z.object({
     gamesPlayed: z.number().int().nonnegative(),
     ticketsEarned: z.number().int().nonnegative(),
@@ -37,6 +50,7 @@ function freshState() {
     owned: defaultOwned(),
     equipped: defaultEquipped(),
     dailyBonusDate: null,
+    dailyBests: { classic: null, endless: null },
     lifetime: { gamesPlayed: 0, ticketsEarned: 0, ticketsSpent: 0 },
   };
 }
@@ -49,6 +63,12 @@ function load() {
   const parsed = readStorage(STORAGE_KEY, StoreSchema);
   if (parsed) {
     Object.assign(state, parsed);
+  }
+  // dailyBests was added after the v1 schema shipped — backfill if the save
+  // predates it. We still call this "v1" because nothing else changed and
+  // optional fields keep older saves valid.
+  if (!state.dailyBests) {
+    state.dailyBests = { classic: null, endless: null };
   }
   // Defensive: if equipped skin isn't in owned (e.g. catalog was edited and
   // a previously-owned id was removed), fall back to 'default' for that
@@ -114,6 +134,44 @@ export const tickets = {
     save();
     this.award('firstDaily', undefined, sourcePos3D);
     return AWARDS.firstDaily;
+  },
+
+  // Check whether `score` beats the player's previous same-day best for
+  // `mode` and, if so, award `dailyHighScore` and update the record. The
+  // first run of a day records the score silently — players only earn the
+  // bonus by *improving* on something they did earlier in the day, which
+  // keeps the reward feeling earned. Returns true iff the award fired.
+  // `mode` is 'classic' or 'endless' (Distance has its own win bonus).
+  checkDailyBest(mode, score, sourcePos3D = null) {
+    if (!Number.isFinite(score) || score <= 0) return false;
+    if (mode !== 'classic' && mode !== 'endless') return false;
+    const today = todayLocal();
+    const prev = state.dailyBests[mode];
+    if (!prev || prev.date !== today) {
+      // First run today — record but don't award. The bar to clear for the
+      // dailyHighScore reward is "improve on your own same-day best".
+      state.dailyBests[mode] = { date: today, score };
+      save();
+      return false;
+    }
+    if (score > prev.score) {
+      state.dailyBests[mode] = { date: today, score };
+      save();
+      this.award('dailyHighScore', undefined, sourcePos3D);
+      return true;
+    }
+    return false;
+  },
+
+  // Award the all-time-high bonus iff `score` strictly exceeds `prevBest`.
+  // The caller must capture prevBest BEFORE persisting the new score — once
+  // saveHighScore() runs, scoring.getBestScore() reflects the new value and
+  // the comparison would always be false.
+  checkAllTimeBest(score, prevBest, sourcePos3D = null) {
+    if (!Number.isFinite(score) || score <= 0) return false;
+    if (score <= prevBest) return false;
+    this.award('allTimeHighScore', undefined, sourcePos3D);
+    return true;
   },
 
   // — Earning —

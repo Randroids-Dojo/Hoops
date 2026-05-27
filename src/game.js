@@ -983,17 +983,15 @@ export class Game {
     this._awardShotTickets(isSwish, result);
   }
 
-  // Centralized ticket-awarding for a single made shot. Called from all
-  // three game modes so the earn rules don't drift.
+  // Centralized ticket-awarding for a single made shot. Tickets are scarce
+  // by design — regular buckets pay nothing, only swishes and streak
+  // milestones do. Bonus time doubles the swish reward (but not the streak
+  // milestone, which already fires at a deliberate rarity).
   _awardShotTickets(isSwish, result) {
     const rim = this.hoop.getRimCenter();
-    const mult = this.scoring.bonusTimeActive ? 2 : 1;
     if (isSwish) {
       tickets.award('swish', undefined, rim);
-      if (mult > 1) tickets.award('swish', undefined, rim); // 2nd helping for bonus time
-    } else {
-      tickets.award('shotMake', undefined, rim);
-      if (mult > 1) tickets.award('shotMake', undefined, rim);
+      if (this.scoring.bonusTimeActive) tickets.award('swish', undefined, rim);
     }
     if (result?.streakMilestone) {
       const level = this.scoring.streak;
@@ -1091,7 +1089,9 @@ export class Game {
     this.hoop.setDepthOffset(this.distanceRun.offsetZ);
     this.audio.playTimeUp();
     this.screens.startFlash();
-    tickets.award('distanceLoss', undefined, this.hoop.getRimCenter());
+    // No ticket award on Distance loss — tickets are reserved for swishes,
+    // streaks, and high scores. The win bonus on _onDistanceWin handles the
+    // success case.
     this._resetBallPool();
     this.state = 'gameOver';
   }
@@ -1101,7 +1101,16 @@ export class Game {
     finishEndlessRun(run);
     this.audio.playTimeUp();
     this.screens.startFlash();
-    tickets.award('endlessTimeUp', undefined, this.hoop.getRimCenter());
+    const rim = this.hoop.getRimCenter();
+    tickets.award('endlessTimeUp', undefined, rim);
+    // High-score bonuses for Endless use the same totalScore the leaderboard
+    // submits. Capture prevBest before saveHighScore() so the comparison
+    // sees the score that existed *before* this run was persisted.
+    const prevBest = this.scoring.getBestScore();
+    const score = this.scoring.totalScore;
+    this.scoring.saveHighScore();
+    tickets.checkAllTimeBest(score, prevBest, rim);
+    tickets.checkDailyBest('endless', score, rim);
     this._resetBallPool();
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);
@@ -1122,13 +1131,15 @@ export class Game {
   _onTimeUp() {
     this.audio.playTimeUp();
     this.screens.startFlash();
-    // A new high score has to be tested BEFORE we save it — saveHighScore()
-    // appends the run unconditionally, so `isHighScore()` is only meaningful
-    // when called first.
-    const wasHighScore = this.scoring.isHighScore() && this.scoring.totalScore > 0;
+    // Snapshot the pre-run best so the all-time check compares against the
+    // value the player was actually trying to beat, not the freshly-saved
+    // run. Daily best fires *after* all-time so a brand-new best pays both.
+    const rim = this.hoop.getRimCenter();
+    const prevBest = this.scoring.getBestScore();
+    const score = this.scoring.totalScore;
     this.scoring.saveHighScore();
-    tickets.award('classicTimeUp', undefined, this.hoop.getRimCenter());
-    if (wasHighScore) tickets.award('highScoreBonus', undefined, this.hoop.getRimCenter());
+    tickets.checkAllTimeBest(score, prevBest, rim);
+    tickets.checkDailyBest('classic', score, rim);
     this._resetBallPool();
 
     // Go to name entry screen instead of directly to game over
