@@ -56,10 +56,13 @@ export function getBallTextures(skinId) {
       _emitBallTextureChange(skinId);
     }).catch((err) => {
       console.warn(`[skins] Failed to load ball image '${skinId}' from ${skin.image}; using procedural fallback.`, err);
-      // Clear the inflight marker so a future getBallTextures() call (e.g.
-      // re-equipping the skin) retries the fetch. Without this a single
-      // transient network failure permanently denies the player their
-      // legendary skin.
+      // Drop BOTH the cache entry and the inflight marker. The fast-path at
+      // the top of this function returns immediately when BALL_CACHE has
+      // the id — so the cache entry must be removed for a future call (e.g.
+      // re-equipping the skin) to fall through to the image-skin branch and
+      // re-issue the fetch. The placeholder is harmless to recompute; it's
+      // just a procedural ball texture.
+      BALL_CACHE.delete(skinId);
       BALL_LOAD_INFLIGHT.delete(skinId);
     });
   }

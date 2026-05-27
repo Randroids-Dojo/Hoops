@@ -997,10 +997,15 @@ export class Screens {
     const balance = tickets.balance();
     const w = canvas.width;
 
-    // Render as a compact pill above the restart button. Anchoring off
-    // getRestartButtonRect (which itself clamps to fit the canvas) means
-    // the pill + balance line slide together with the restart button on
-    // short viewports rather than colliding with it.
+    // Place the pill in the band BETWEEN the global-rank text (~h*0.67)
+    // and the restart button. Both ends are clamped: anchored above the
+    // restart button (which itself clamps to fit the canvas) and below
+    // the rank baseline. If the band is too narrow to hold the block on
+    // very short viewports, the pill is suppressed entirely rather than
+    // overlapping rank/restart — players still see their earned total in
+    // the lifetime counter on the next screen, so silent suppression is
+    // preferable to a visual collision.
+    const h = canvas.height;
     const text = `+${total} TICKETS`;
     ctx.save();
     ctx.textAlign = 'center';
@@ -1011,8 +1016,15 @@ export class Screens {
     const pillH = 26;
     const balLineH = 16;
     const blockGap = 12;
+    const rankGuard = 8;
     const restart = this.getRestartButtonRect(canvas);
-    const pillY = restart.y - blockGap - balLineH - pillH;
+    const pillYAboveRestart = restart.y - blockGap - balLineH - pillH;
+    const pillYBelowRank = h * 0.67 + rankGuard;
+    if (pillYAboveRestart < pillYBelowRank) {
+      ctx.restore();
+      return;
+    }
+    const pillY = pillYAboveRestart;
     const pillX = w / 2 - pillW / 2;
 
     ctx.fillStyle = 'rgba(255,211,77,0.14)';
@@ -1029,8 +1041,8 @@ export class Screens {
     ctx.fillText(text, w / 2, pillY + pillH / 2 + 6);
 
     // Balance line just below the pill: "BALANCE <icon> N" so the player
-    // sees what they have to spend in the Store, with the same notched
-    // ticket glyph used elsewhere in place of the old ◉ coin char.
+    // sees what they have to spend in the Store. Uses the same notched
+    // ticket glyph rendered elsewhere in the UI.
     ctx.font = '12px monospace';
     const labelText = 'BALANCE';
     const balText = `${balance}`;

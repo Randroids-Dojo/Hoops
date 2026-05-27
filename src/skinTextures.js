@@ -1,8 +1,6 @@
 // Parameterized procedural texture generators + async image loaders for
-// skin assets. Replaces the hardcoded makeBasketballTexture / makeWoodTexture
-// generators that previously lived in world3d.js. The originals are still
-// re-exported from world3d.js for back-compat; their behavior is reproduced
-// here by passing the catalog's 'default' params.
+// skin assets. Callers pass per-skin params from the catalog; the default
+// look is whatever the 'default' catalog entry specifies.
 
 import * as THREE from 'three';
 

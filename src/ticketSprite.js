@@ -44,8 +44,8 @@ export function getTicketIcon(kind = 'gold') {
 // The icon canvas is rendered at a fixed reference aspect ratio (26×14
 // CSS px, with 4× oversampling for sharpness). Callers pass their own
 // pixel dimensions to drawImage — every call site sizes the icon to its
-// surrounding pill, so a single shared ticketIconSize() helper would
-// always be overridden anyway.
+// surrounding pill or text run, so there's no shared "natural size"
+// helper to export.
 
 function _renderTicket(amount) {
   const c = document.createElement('canvas');

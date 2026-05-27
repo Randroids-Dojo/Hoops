@@ -153,7 +153,12 @@ export const tickets = {
       save();
       return false;
     }
-    if (score > prev.score) {
+    // A non-finite prev.score (e.g. in-memory corruption) would make
+    // `score > prev.score` false on every comparison and silently deny the
+    // earned bonus. Treat corrupt prev as "no prior best" so the player
+    // gets the award and the record self-heals.
+    const safePrev = Number.isFinite(prev.score) ? prev.score : -1;
+    if (score > safePrev) {
       state.dailyBests[mode] = { date: today, score };
       save();
       this.award('dailyHighScore', undefined, sourcePos3D);
@@ -207,6 +212,12 @@ export const tickets = {
       // Already owned — treat as a no-op equip so the UI still feels responsive.
       return this.equip(cat, id);
     }
+    // Guard against a catalog entry without a numeric price. `state.tickets
+    // < undefined` evaluates false (NaN compare), which would let the next
+    // line subtract undefined and NaN the balance — a corrupted balance
+    // gets rejected by the Zod schema on next load and wipes the player's
+    // tickets. Fail closed instead.
+    if (!Number.isFinite(skin.price) || skin.price < 0) return false;
     if (state.tickets < skin.price) return false;
     state.tickets -= skin.price;
     state.lifetime.ticketsSpent += skin.price;

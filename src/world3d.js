@@ -3,7 +3,6 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { makeBallTextures } from './skinTextures.js';
 import { getSkin } from './storeData.js';
 import { getCourtTexture } from './skins.js';
 
@@ -281,18 +280,3 @@ export class World3D {
   }
 }
 
-// ── Procedural textures ──────────────────────────────────────────────────
-// Generators moved into skinTextures.js so the catalog can drive them with
-// per-skin params. The previously-exported helpers are kept as thin shims so
-// any external consumer that imports them still works — internally, ball.js
-// goes through skins.js now.
-
-export function makeBasketballTexture() {
-  const defaultSkin = getSkin('ball', 'default');
-  return makeBallTextures(defaultSkin.params).map;
-}
-
-export function makeBasketballBumpMap() {
-  const defaultSkin = getSkin('ball', 'default');
-  return makeBallTextures(defaultSkin.params).bumpMap;
-}
