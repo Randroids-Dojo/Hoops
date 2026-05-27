@@ -93,25 +93,6 @@ function emit(event) {
 
 load();
 
-// TEMP: testing-only grant. Hands out 50,000 tickets once per device so we
-// can exercise the store catalog at all rarity tiers without grinding.
-// Keyed off a localStorage marker (not state.lifetime) so the grant is
-// idempotent across reloads and survives a store-schema reset. Remove
-// this block (and the marker key) before shipping the ticket economy.
-const TEST_GRANT_KEY = 'hoops-test-grant-50k';
-const TEST_GRANT_AMOUNT = 50_000;
-try {
-  if (typeof localStorage !== 'undefined' && !localStorage.getItem(TEST_GRANT_KEY)) {
-    state.tickets += TEST_GRANT_AMOUNT;
-    state.lifetime.ticketsEarned += TEST_GRANT_AMOUNT;
-    save();
-    localStorage.setItem(TEST_GRANT_KEY, '1');
-  }
-} catch {
-  // localStorage unavailable (private mode, SSR, etc.) — skip; players in
-  // that mode just won't see the test grant.
-}
-
 function todayLocal() {
   // en-CA gives yyyy-mm-dd in local TZ — same format as ISO date but anchored
   // to the player's clock, so "first game today" doesn't reset at UTC midnight.
