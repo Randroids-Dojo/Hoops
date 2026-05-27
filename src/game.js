@@ -136,11 +136,12 @@ export class Game {
     const dst = coinAnim.getCounterDst();
     coinAnim.spawnBurst(src.x, src.y, dst.x, dst.y, evt.amount, tickets.balance());
 
-    // Inline ticket-earned label as a small notification — uses existing
-    // HUD notification stack so it visually queues behind SWISH/streak text.
+    // Award feedback is an arcade paper ticket — a regular red 1-ticket for
+    // single-ticket awards (shot makes), a gold stub printed with the value
+    // for swishes / streaks / mode bonuses. Sits on the same notification
+    // stack as SWISH / streak labels so multiple awards queue cleanly.
     if (this.hud && evt.amount > 0) {
-      const label = evt.reason === 'firstDaily' ? '+100 DAILY BONUS' : `+${evt.amount} TICKETS`;
-      this.hud.addNotification(label, 0.55);
+      this.hud.addTicketNotification(evt.amount);
     }
   }
 

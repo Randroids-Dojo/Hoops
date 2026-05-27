@@ -3,15 +3,27 @@
 import { COLORS, BONUS_TIME_THRESHOLD } from './utils.js';
 import { tickets } from './tickets.js';
 import * as coinAnim from './coinAnim.js';
+import { getTicketSprite, ticketSize } from './ticketSprite.js';
 
 export class HUD {
   constructor() {
-    this.notifications = []; // { text, timer, maxTimer }
+    // Notifications hold either { text } or { ticket: number } — text gets
+    // bold monospace, ticket gets a pop-in arcade-paper-ticket sprite. Both
+    // share the stack-layout + scale/fade animation.
+    this.notifications = [];
     coinAnim.setInitialBalance(tickets.balance());
   }
 
   addNotification(text, duration = 0.8) {
     this.notifications.push({ text, timer: duration, maxTimer: duration });
+  }
+
+  // Show an arcade-paper-ticket sprite for the awarded amount. Defaults to a
+  // slightly longer duration than the text notifications so the player has
+  // time to read the number on the sprite.
+  addTicketNotification(amount, duration = 0.9) {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    this.notifications.push({ ticket: amount, timer: duration, maxTimer: duration });
   }
 
   update(dt) {
@@ -212,15 +224,33 @@ export class HUD {
       const y = h * 0.4 + i * 50;
       ctx.save();
       ctx.translate(w / 2, y);
-      ctx.scale(scale, scale);
       ctx.globalAlpha = alpha;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = COLORS.white;
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.lineWidth = 4;
-      ctx.font = 'bold 36px monospace';
-      ctx.strokeText(notif.text, 0, 0);
-      ctx.fillText(notif.text, 0, 0);
+
+      if (notif.ticket !== undefined) {
+        // Arcade-ticket sprite. A tiny wiggle rotation as it pops in gives
+        // it the falling-paper feel without the cost of full physics.
+        const wiggle = progress < 0.3 ? (1 - progress / 0.3) * 0.12 : 0;
+        const rot = Math.sin(progress * Math.PI * 4) * wiggle;
+        // Pop overshoot for extra arcade feel — pulses to 1.18x then settles.
+        const pop = progress < 0.2
+          ? scale * (1 + Math.sin(progress / 0.2 * Math.PI) * 0.12)
+          : scale;
+        ctx.rotate(rot);
+        ctx.scale(pop, pop);
+        const sprite = getTicketSprite(notif.ticket);
+        const { w: tw, h: th } = ticketSize();
+        ctx.drawImage(sprite, -tw / 2, -th / 2, tw, th);
+      } else {
+        ctx.scale(scale, scale);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = COLORS.white;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 4;
+        ctx.font = 'bold 36px monospace';
+        ctx.strokeText(notif.text, 0, 0);
+        ctx.fillText(notif.text, 0, 0);
+      }
+
       ctx.restore();
     }
     ctx.globalAlpha = 1;
