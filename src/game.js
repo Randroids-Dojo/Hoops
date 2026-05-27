@@ -16,6 +16,7 @@ import { Leaderboard } from './leaderboard.js';
 import { initFeedbackFab, show as showFab, hide as hideFab } from './feedbackFab.js';
 import { settings } from './settings.js';
 import { tickets } from './tickets.js';
+import { AWARDS } from './storeData.js';
 import { STREAK } from './utils.js';
 import * as skins from './skins.js';
 import * as coinAnim from './coinAnim.js';
@@ -717,13 +718,20 @@ export class Game {
 
     hideFab();
     // Reset any in-flight coins from a prior run so they don't fly into the
-    // new game's counter.
-    coinAnim.clear();
+    // new game's counter, and resync the displayed balance with the real
+    // one in case the player bought a skin between runs.
+    coinAnim.clear(tickets.balance());
     // Re-apply equipped skins in case the player exited the Store with an
     // unbought preview still showing on the meshes.
     skins.applyAllEquipped(this);
     // Start the per-run awards log + bump lifetime games-played.
     tickets.beginRun();
+    // Prime the coin-animation destination BEFORE awarding the daily bonus.
+    // The HUD's _drawTicketCounter normally sets counterDst on its first
+    // render, but `startGame` runs on the same tick the title screen tap is
+    // processed — so daily-bonus coins would fly to (0,0) before HUD renders.
+    const counterRect = this.hud.getTicketCounterRect(this.canvas);
+    coinAnim.setCounterDst(counterRect.x + counterRect.w / 2, counterRect.y + counterRect.h / 2);
     // Daily-bonus award (no-op if already claimed today).
     tickets.claimDailyBonusIfNew(this.hoop.getRimCenter());
     this.gameMode = mode;
@@ -986,12 +994,14 @@ export class Game {
   // Centralized ticket-awarding for a single made shot. Tickets are scarce
   // by design — regular buckets pay nothing, only swishes and streak
   // milestones do. Bonus time doubles the swish reward (but not the streak
-  // milestone, which already fires at a deliberate rarity).
+  // milestone, which already fires at a deliberate rarity). The double is
+  // applied as one award with twice the value so the player sees one
+  // ticket sprite, not two stacked notifications for a single shot.
   _awardShotTickets(isSwish, result) {
     const rim = this.hoop.getRimCenter();
     if (isSwish) {
-      tickets.award('swish', undefined, rim);
-      if (this.scoring.bonusTimeActive) tickets.award('swish', undefined, rim);
+      const swishMult = this.scoring.bonusTimeActive ? 2 : 1;
+      tickets.award('swish', AWARDS.swish * swishMult, rim);
     }
     if (result?.streakMilestone) {
       const level = this.scoring.streak;
@@ -1103,14 +1113,13 @@ export class Game {
     this.screens.startFlash();
     const rim = this.hoop.getRimCenter();
     tickets.award('endlessTimeUp', undefined, rim);
-    // High-score bonuses for Endless use the same totalScore the leaderboard
-    // submits. Capture prevBest before saveHighScore() so the comparison
-    // sees the score that existed *before* this run was persisted.
-    const prevBest = this.scoring.getBestScore();
-    const score = this.scoring.totalScore;
-    this.scoring.saveHighScore();
-    tickets.checkAllTimeBest(score, prevBest, rim);
-    tickets.checkDailyBest('endless', score, rim);
+    // Daily-best for Endless tracks its own per-mode score in the tickets
+    // state, so it stays isolated from Classic. The all-time bonus is
+    // intentionally Classic-only: scoring.highScores is a single local list
+    // that only Classic writes to, and writing Endless totals into it would
+    // cross-pollute both modes' best-score tracking. Endless players still
+    // get the endlessTimeUp award and the remote leaderboard for ranking.
+    tickets.checkDailyBest('endless', this.scoring.totalScore, rim);
     this._resetBallPool();
     this.state = 'nameEntry';
     this.screens.initNameEntry(this.leaderboard.playerName);

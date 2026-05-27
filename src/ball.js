@@ -40,9 +40,11 @@ export function launchVector(power, lateralAngle) {
 }
 
 // Per-skin textures are cached in skins.js; each Ball just reads the cached
-// {map, bumpMap} for the currently equipped skin and swaps them in place when
-// the equipped skin changes (live preview or game start). The pool still
-// shares textures — caching is keyed by skin id, not by Ball instance.
+// {map, bumpMap} for the currently equipped skin and swaps them in place
+// when the equipped skin changes (live preview or game start). Each Ball
+// owns its own MeshStandardMaterial — only the underlying CanvasTexture is
+// shared across the pool, so material-level state (bumpScale, roughness)
+// stays per-instance even though pixels come from one texture.
 
 export class Ball {
   constructor(world3d) {

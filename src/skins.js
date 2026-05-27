@@ -3,7 +3,6 @@
 // Image-backed skins kick off an async load on first request; the procedural
 // fallback is returned immediately so the player never sees a blank ball.
 
-import * as THREE from 'three';
 import { getSkin, CATEGORIES } from './storeData.js';
 import {
   makeBallTextures,
@@ -14,7 +13,10 @@ import { tickets } from './tickets.js';
 
 // skinId → { map, bumpMap }
 const BALL_CACHE = new Map();
-// skinId → boolean (true once load has been kicked off so we don't retry)
+// skinId → CanvasTexture (one per court skin id)
+const COURT_CACHE = new Map();
+// skinIds currently waiting on their image fetch — prevents duplicate
+// loads, but cleared on failure so a subsequent equip can retry.
 const BALL_LOAD_INFLIGHT = new Set();
 
 // Returns the cached pair for `skinId`, building it if needed. For image
@@ -25,7 +27,10 @@ export function getBallTextures(skinId) {
   if (BALL_CACHE.has(skinId)) return BALL_CACHE.get(skinId);
   const skin = getSkin('ball', skinId);
   if (!skin) {
-    // Unknown id — synthesize default to avoid throwing.
+    // Unknown id — synthesize default to avoid throwing. Logged so a typo
+    // in the catalog or a stale equipped id from a corrupted save is
+    // surfaced rather than silently replaced.
+    console.warn(`[skins] Unknown ball skin id '${skinId}'; falling back to default.`);
     const fallback = makeBallTextures(getSkin('ball', 'default').params);
     BALL_CACHE.set(skinId, fallback);
     return fallback;
@@ -47,14 +52,35 @@ export function getBallTextures(skinId) {
     BALL_LOAD_INFLIGHT.add(skinId);
     loadBallImageTexture(skin.image).then((loaded) => {
       BALL_CACHE.set(skinId, loaded);
+      BALL_LOAD_INFLIGHT.delete(skinId);
       _emitBallTextureChange(skinId);
     }).catch((err) => {
       console.warn(`[skins] Failed to load ball image '${skinId}' from ${skin.image}; using procedural fallback.`, err);
-      // Leave the procedural fallback in place; nothing more to do.
+      // Clear the inflight marker so a future getBallTextures() call (e.g.
+      // re-equipping the skin) retries the fetch. Without this a single
+      // transient network failure permanently denies the player their
+      // legendary skin.
+      BALL_LOAD_INFLIGHT.delete(skinId);
     });
   }
 
   return placeholder;
+}
+
+// Cached procedural court texture. world3d.applyCourtSkin pulls through this
+// so repeated previews of the same skin don't re-rasterize the 256×256
+// canvas. The texture's wrap/repeat are stamped here so callers don't have
+// to remember to re-apply them on each swap.
+export function getCourtTexture(skinId) {
+  if (COURT_CACHE.has(skinId)) return COURT_CACHE.get(skinId);
+  const skin = getSkin('court', skinId);
+  if (!skin) {
+    console.warn(`[skins] Unknown court skin id '${skinId}'; falling back to default.`);
+    return getCourtTexture('default');
+  }
+  const tex = makeCourtTexture(skin.params);
+  COURT_CACHE.set(skinId, tex);
+  return tex;
 }
 
 const ballTextureListeners = new Set();

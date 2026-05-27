@@ -9,7 +9,10 @@ const COIN_FLIGHT_MIN = 0.55;
 const COIN_FLIGHT_MAX = 0.85;
 const COUNT_UP_MS = 380;
 const PULSE_MS = 220;
-const MAX_VISIBLE_COINS = 8; // a 50-coin UNSTOPPABLE shouldn't drown the screen
+// Cap how many sprites we draw per burst. A 200-ticket UNSTOPPABLE award
+// would otherwise crowd the screen with a swarm of identical tickets; the
+// count-up tween still credits the full amount.
+const MAX_VISIBLE_COINS = 8;
 // Rendered size of each in-flight ticket sprite, in CSS pixels.
 const FLY_TICKET_W = 30;
 const FLY_TICKET_H = 16;
@@ -150,9 +153,17 @@ export function setCounterDst(x, y) { counterDst = { x, y }; }
 export function getCounterDst() { return counterDst; }
 
 // Reset state — used on game restart so coins don't bleed between sessions.
-export function clear() {
+// Also pulls a fresh balance read so the counter never starts a new run
+// displaying yesterday's spent total (e.g. if the player bought a skin
+// between runs, the displayed balance and the real balance would otherwise
+// disagree until the next award).
+export function clear(currentBalance) {
   coins = [];
   pendingPayouts.length = 0;
   pulseStart = -1;
   countUpStart = 0;
+  if (Number.isFinite(currentBalance)) {
+    displayedBalance = currentBalance;
+    trueBalance = currentBalance;
+  }
 }

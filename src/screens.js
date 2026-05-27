@@ -996,11 +996,11 @@ export class Screens {
     if (total <= 0) return;
     const balance = tickets.balance();
     const w = canvas.width;
-    const h = canvas.height;
 
-    // Render as a compact pill below the global rank, above the restart
-    // button. Keeps the existing layout intact while still telling the
-    // player how much they earned this run.
+    // Render as a compact pill above the restart button. Anchoring off
+    // getRestartButtonRect (which itself clamps to fit the canvas) means
+    // the pill + balance line slide together with the restart button on
+    // short viewports rather than colliding with it.
     const text = `+${total} TICKETS`;
     ctx.save();
     ctx.textAlign = 'center';
@@ -1009,7 +1009,10 @@ export class Screens {
     const padX = 14;
     const pillW = tw + padX * 2;
     const pillH = 26;
-    const pillY = h * 0.7;
+    const balLineH = 16;
+    const blockGap = 12;
+    const restart = this.getRestartButtonRect(canvas);
+    const pillY = restart.y - blockGap - balLineH - pillH;
     const pillX = w / 2 - pillW / 2;
 
     ctx.fillStyle = 'rgba(255,211,77,0.14)';

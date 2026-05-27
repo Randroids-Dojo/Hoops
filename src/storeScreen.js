@@ -437,23 +437,34 @@ export class StoreScreen {
     const cat = this.activeCategory;
     const previewing = this.previewId[cat];
     if (!previewing) {
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.font = '12px monospace';
-      ctx.fillText('Tap a skin to preview', canvas.width / 2, canvas.height - 28);
-      ctx.restore();
+      this._drawHintText(ctx, canvas, 'Tap a skin to preview', 'rgba(255,255,255,0.4)');
       return;
     }
     // Previewing an owned skin → hint says tap card to equip; already
-    // equipped → just say so quietly.
-    if (tickets.isOwned(cat, previewing) && !tickets.isEquipped(cat, previewing)) {
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.font = '12px monospace';
-      ctx.fillText('Tap card again to equip', canvas.width / 2, canvas.height - 28);
-      ctx.restore();
+    // equipped → just say so quietly; unaffordable → tell the player how
+    // many more tickets they need so the missing BUY button doesn't read
+    // as a bug.
+    if (tickets.isOwned(cat, previewing)) {
+      if (!tickets.isEquipped(cat, previewing)) {
+        this._drawHintText(ctx, canvas, 'Tap card again to equip', 'rgba(255,255,255,0.55)');
+      }
+      return;
     }
+    const skin = getSkin(cat, previewing);
+    if (skin) {
+      const need = skin.price - tickets.balance();
+      if (need > 0) {
+        this._drawHintText(ctx, canvas, `Need ${need} more tickets`, 'rgba(255, 90, 90, 0.85)');
+      }
+    }
+  }
+
+  _drawHintText(ctx, canvas, text, color) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.font = '12px monospace';
+    ctx.fillText(text, canvas.width / 2, canvas.height - 28);
+    ctx.restore();
   }
 }

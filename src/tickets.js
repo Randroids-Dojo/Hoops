@@ -70,15 +70,16 @@ function load() {
   if (!state.dailyBests) {
     state.dailyBests = { classic: null, endless: null };
   }
-  // Defensive: if equipped skin isn't in owned (e.g. catalog was edited and
-  // a previously-owned id was removed), fall back to 'default' for that
-  // category so the renderer never points at a missing asset.
+  // Defensive: ensure every category owns 'default', then check the equipped
+  // id against owned. Unshifting first guarantees the equipped fallback to
+  // 'default' always lands on something the player owns, even if the saved
+  // state is corrupt or predates the default-must-be-owned invariant.
   for (const cat of CATEGORIES) {
-    if (!state.owned[cat].includes(state.equipped[cat])) {
-      state.equipped[cat] = 'default';
-    }
     if (!state.owned[cat].includes('default')) {
       state.owned[cat].unshift('default');
+    }
+    if (!state.owned[cat].includes(state.equipped[cat])) {
+      state.equipped[cat] = 'default';
     }
   }
 }
@@ -106,7 +107,6 @@ export const tickets = {
   equipped(cat) { return state.equipped[cat]; },
   isOwned(cat, id) { return state.owned[cat].includes(id); },
   isEquipped(cat, id) { return state.equipped[cat] === id; },
-  getRunAwards() { return runAwards.slice(); },
   getRunTotal() { return runAwards.reduce((s, a) => s + a.amount, 0); },
   lifetime() { return { ...state.lifetime }; },
 
@@ -132,8 +132,7 @@ export const tickets = {
     if (state.dailyBonusDate === today) return 0;
     state.dailyBonusDate = today;
     save();
-    this.award('firstDaily', undefined, sourcePos3D);
-    return AWARDS.firstDaily;
+    return this.award('firstDaily', undefined, sourcePos3D);
   },
 
   // Check whether `score` beats the player's previous same-day best for
@@ -166,10 +165,13 @@ export const tickets = {
   // Award the all-time-high bonus iff `score` strictly exceeds `prevBest`.
   // The caller must capture prevBest BEFORE persisting the new score — once
   // saveHighScore() runs, scoring.getBestScore() reflects the new value and
-  // the comparison would always be false.
+  // the comparison would always be false. A non-finite prevBest is treated
+  // as 0 so a corrupted high-score list can't accidentally trigger the bonus
+  // by making the score-vs-NaN comparison silently false.
   checkAllTimeBest(score, prevBest, sourcePos3D = null) {
     if (!Number.isFinite(score) || score <= 0) return false;
-    if (score <= prevBest) return false;
+    const safeBest = Number.isFinite(prevBest) ? prevBest : 0;
+    if (score <= safeBest) return false;
     this.award('allTimeHighScore', undefined, sourcePos3D);
     return true;
   },
@@ -178,6 +180,12 @@ export const tickets = {
   // award(reason, amount?, sourcePos3D?) — `amount` defaults to AWARDS[reason].
   // Persists immediately so balance never disagrees with what the player saw.
   award(reason, amount, sourcePos3D = null) {
+    if (amount === undefined && AWARDS[reason] === undefined) {
+      // Typo or stale call site. The award still no-ops cleanly via the
+      // value<=0 guard below, but a silent miss is worse than a console
+      // warn — surfaces broken reasons during development.
+      console.warn(`[tickets] award('${reason}') has no entry in AWARDS and no explicit amount; ignoring.`);
+    }
     const value = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : (AWARDS[reason] || 0);
     if (value <= 0) return 0;
     state.tickets += value;

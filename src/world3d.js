@@ -3,8 +3,9 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { makeCourtTexture, makeBallTextures } from './skinTextures.js';
+import { makeBallTextures } from './skinTextures.js';
 import { getSkin } from './storeData.js';
+import { getCourtTexture } from './skins.js';
 
 export const COURT = {
   rim: new THREE.Vector3(0, 3.05, -3),     // rim center (regulation 10ft)
@@ -118,8 +119,12 @@ export class World3D {
   _buildCourt() {
     // Court floor — built with the default court skin. applyCourtSkin() can
     // swap the texture + material params later without rebuilding geometry.
+    // Going through getCourtTexture (rather than makeCourtTexture directly)
+    // seeds the per-skin texture cache with the default, so a later
+    // applyCourtSkin('default') doesn't rasterize a new canvas just to land
+    // back on the same look.
     const defaultSkin = getSkin('court', 'default');
-    const floorTex = makeCourtTexture(defaultSkin.params);
+    const floorTex = getCourtTexture('default');
     floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
     floorTex.repeat.set(6, 12);
     const floorMat = new THREE.MeshStandardMaterial({
@@ -209,15 +214,18 @@ export class World3D {
   applyCourtSkin(skinId) {
     const skin = getSkin('court', skinId);
     if (!skin || !this.floor) return;
-    const tex = makeCourtTexture(skin.params);
+    if (skinId === this.currentCourtSkinId) return;
+    // Pull from the skins.js court cache so repeated previews don't re-paint
+    // the 256×256 canvas. The cache owns the texture lifetime — we never
+    // dispose maps swapped out by this call, since they may still be in the
+    // cache and reachable by another preview tap.
+    const tex = getCourtTexture(skinId);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(6, 12);
-    const oldMap = this.floor.material.map;
     this.floor.material.map = tex;
     this.floor.material.roughness = skin.params.roughness ?? 0.55;
     this.floor.material.metalness = skin.params.metalness ?? 0.05;
     this.floor.material.needsUpdate = true;
-    if (oldMap && oldMap !== tex) oldMap.dispose();
     if (this.lineMat) this.lineMat.color.set(skin.params.line);
     this.currentCourtSkinId = skinId;
   }

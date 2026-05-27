@@ -35,21 +35,6 @@ export const AWARDS = {
   allTimeHighScore:     1500, // beat your local all-time best — the headline reward
 };
 
-// Human-friendly labels for the end-of-game breakdown.
-export const AWARD_LABELS = {
-  firstDaily:        'Daily bonus',
-  swish:             'Swishes',
-  streakHeatingUp:   'Heating up',
-  streakOnFire:      'On fire',
-  streakBlazing:     'Blazing',
-  streakUnstoppable: 'Unstoppable',
-  stageClear:        'Stage clears',
-  distanceWin:       'Distance win',
-  endlessTimeUp:     'Endless finish',
-  dailyHighScore:    'Daily high score',
-  allTimeHighScore:  'ALL-TIME HIGH SCORE',
-};
-
 // All skins share the same shape: id, name, rarity, price, kind, params/image.
 // Procedural skins are rendered live from `params` by skinTextures.js; image
 // skins load a PNG from /public/skins/ and fall back to `fallback.params` if
