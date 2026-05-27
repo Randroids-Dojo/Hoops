@@ -663,6 +663,15 @@ export class Game {
       settings.togglePowerMeterSide();
       return;
     }
+    if (this.screens._hitTest(x, y, rects.tutorial)) {
+      // Clear the completion flag and re-arm the overlay. Drop straight
+      // back into play so the player sees the tutorial on their next shot
+      // — no need to detour through the pause menu first.
+      this.audio.playClick();
+      this.tutorial.restart();
+      this.state = 'playing';
+      return;
+    }
     if (this.screens._hitTest(x, y, rects.back)) {
       this._exitSettings();
       return;

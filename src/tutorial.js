@@ -119,6 +119,20 @@ export class Tutorial {
     writeStorage(STORAGE_KEY, { completed: true });
   }
 
+  // Player asked to replay the tutorial from Settings. Clears the
+  // completion flag and arms the overlay immediately, so it appears on
+  // their next shot in the current run without restarting the game.
+  restart() {
+    writeStorage(STORAGE_KEY, { completed: false });
+    this.completed = false;
+    this.active = true;
+    this.phase = PHASE.AIM;
+    this.elapsed = 0;
+    this.attempts = 0;
+    this.lastMissed = false;
+    this._wasDragging = false;
+  }
+
   // Returns the meter Hz the game should use this frame. Slow during the
   // tutorial, default rate otherwise.
   meterRateHz(defaultHz) {

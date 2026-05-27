@@ -927,8 +927,9 @@ export class Screens {
     const backW = Math.min(w * 0.4, 160);
     const backH = 40;
     return {
-      powerSide: { x: w / 2 - btnW / 2, y: h * 0.42, w: btnW, h: btnH },
-      back: { x: w / 2 - backW / 2, y: h * 0.72, w: backW, h: backH },
+      powerSide: { x: w / 2 - btnW / 2, y: h * 0.36, w: btnW, h: btnH },
+      tutorial: { x: w / 2 - btnW / 2, y: h * 0.56, w: btnW, h: btnH },
+      back: { x: w / 2 - backW / 2, y: h * 0.76, w: backW, h: backH },
     };
   }
 
@@ -974,6 +975,28 @@ export class Screens {
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '11px monospace';
     ctx.fillText('TAP TO TOGGLE', w / 2, r.y + r.h + 16);
+
+    // Replay-tutorial button. Re-arms the first-run overlay so the player
+    // can see the shot tutorial again whenever they want.
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '13px monospace';
+    ctx.fillText('TUTORIAL', w / 2, rects.tutorial.y - 14);
+
+    const tut = rects.tutorial;
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 2;
+    this._roundRect(ctx, tut.x, tut.y, tut.w, tut.h, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.white;
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('START TUTORIAL', w / 2, tut.y + tut.h / 2 + 7);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '11px monospace';
+    ctx.fillText('REPLAYS ON YOUR NEXT SHOT', w / 2, tut.y + tut.h + 16);
 
     // Back button
     const back = rects.back;
