@@ -23,6 +23,11 @@ export class Screens {
     this.stageClearDuration = 3;
     this.flashAlpha = 0;
 
+    // Settings confirm-modal state. True while the player is being asked
+    // to confirm a destructive Settings action like "Restart and start
+    // tutorial?". Cleared on YES, NO, or BACK.
+    this.confirmingTutorialRestart = false;
+
     // Name entry state
     this.nameChars = ['A', 'A', 'A'];
     this.namePos = 0; // cursor position 0-2
@@ -933,6 +938,26 @@ export class Screens {
     };
   }
 
+  // Yes/No button rects for the tutorial-restart confirm modal. Only
+  // valid while confirmingTutorialRestart is true.
+  getSettingsConfirmRects(canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const panelW = Math.min(w * 0.82, 320);
+    const panelH = 170;
+    const panelX = (w - panelW) / 2;
+    const panelY = (h - panelH) / 2;
+    const btnGap = 14;
+    const btnW = (panelW - btnGap - 32) / 2;
+    const btnH = 42;
+    const btnY = panelY + panelH - btnH - 16;
+    return {
+      panel: { x: panelX, y: panelY, w: panelW, h: panelH },
+      no: { x: panelX + 16, y: btnY, w: btnW, h: btnH },
+      yes: { x: panelX + 16 + btnW + btnGap, y: btnY, w: btnW, h: btnH },
+    };
+  }
+
   renderSettings(ctx, canvas, settings) {
     const w = canvas.width;
     const h = canvas.height;
@@ -1010,6 +1035,70 @@ export class Screens {
     ctx.fillStyle = COLORS.primary;
     ctx.font = 'bold 15px monospace';
     ctx.fillText('BACK', w / 2, back.y + back.h / 2 + 5);
+
+    ctx.restore();
+
+    if (this.confirmingTutorialRestart) {
+      this._renderTutorialRestartConfirm(ctx, canvas);
+    }
+  }
+
+  _renderTutorialRestartConfirm(ctx, canvas) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const rects = this.getSettingsConfirmRects(canvas);
+    const { panel, no, yes } = rects;
+
+    ctx.save();
+    // Darken the rest of the settings screen so the modal pops.
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Modal panel
+    ctx.fillStyle = 'rgba(10, 14, 26, 0.96)';
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = COLORS.primary;
+    ctx.shadowBlur = 22;
+    this._roundRect(ctx, panel.x, panel.y, panel.w, panel.h, 10);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.primary;
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText('CONFIRM', panel.x + panel.w / 2, panel.y + 22);
+
+    ctx.fillStyle = COLORS.white;
+    ctx.font = 'bold 17px monospace';
+    ctx.fillText('Restart and start tutorial?', panel.x + panel.w / 2, panel.y + 50);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.font = '12px monospace';
+    ctx.fillText('Your current run will be lost.', panel.x + panel.w / 2, panel.y + 76);
+
+    // NO button — neutral
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 1.5;
+    this._roundRect(ctx, no.x, no.y, no.w, no.h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('NO', no.x + no.w / 2, no.y + no.h / 2 + 5);
+
+    // YES button — destructive accent
+    ctx.fillStyle = 'rgba(255, 107, 0, 0.16)';
+    ctx.strokeStyle = COLORS.secondary;
+    ctx.lineWidth = 2;
+    this._roundRect(ctx, yes.x, yes.y, yes.w, yes.h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = COLORS.secondary;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('YES, RESTART', yes.x + yes.w / 2, yes.y + yes.h / 2 + 5);
 
     ctx.restore();
   }

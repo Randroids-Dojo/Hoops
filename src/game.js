@@ -278,7 +278,13 @@ export class Game {
         if (this.state === 'playing' || this.state === 'paused') {
           this.togglePause();
         } else if (this.state === 'settings') {
-          this._exitSettings();
+          // ESC first dismisses an open confirm modal; a second press
+          // exits Settings entirely.
+          if (this.screens.confirmingTutorialRestart) {
+            this.screens.confirmingTutorialRestart = false;
+          } else {
+            this._exitSettings();
+          }
         } else if (this.state === 'leaderboard') {
           this._exitLeaderboard();
         } else if (this.state === 'store') {
@@ -657,6 +663,29 @@ export class Game {
   }
 
   _handleSettingsTap(x, y) {
+    // While the confirm modal is up, taps on the underlying settings
+    // controls are blocked — only YES / NO resolve it.
+    if (this.screens.confirmingTutorialRestart) {
+      const cr = this.screens.getSettingsConfirmRects(this.canvas);
+      if (this.screens._hitTest(x, y, cr.yes)) {
+        this.audio.playClick();
+        this.screens.confirmingTutorialRestart = false;
+        // Clear the completion flag, then restart the current mode.
+        // startGame() calls tutorial.begin() which arms the overlay
+        // since restart() flipped the persisted "completed" flag off.
+        this.tutorial.restart();
+        this.startGame(this.gameMode);
+        return;
+      }
+      if (this.screens._hitTest(x, y, cr.no)) {
+        this.audio.playClick();
+        this.screens.confirmingTutorialRestart = false;
+        return;
+      }
+      // Tap outside YES/NO is ignored — keeps the modal modal.
+      return;
+    }
+
     const rects = this.screens.getSettingsRects(this.canvas);
     if (this.screens._hitTest(x, y, rects.powerSide)) {
       this.audio.playClick();
@@ -664,12 +693,10 @@ export class Game {
       return;
     }
     if (this.screens._hitTest(x, y, rects.tutorial)) {
-      // Clear the completion flag and re-arm the overlay. Drop straight
-      // back into play so the player sees the tutorial on their next shot
-      // — no need to detour through the pause menu first.
+      // Don't restart in-place — confirm first, since the current run
+      // (and its score / streak / clock) is about to be wiped.
       this.audio.playClick();
-      this.tutorial.restart();
-      this.state = 'playing';
+      this.screens.confirmingTutorialRestart = true;
       return;
     }
     if (this.screens._hitTest(x, y, rects.back)) {
@@ -680,6 +707,9 @@ export class Game {
 
   _exitSettings() {
     this.audio.playClick();
+    // Drop any half-finished confirm dialog so it doesn't pop back up
+    // the next time the player visits Settings.
+    this.screens.confirmingTutorialRestart = false;
     this.state = 'paused';
   }
 
